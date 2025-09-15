@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'resume_auditor_screen.dart';
 import '../../widgets/custom_text_field.dart';
+import 'package:innerexec/presentation/screens/job_add/add_job_screen.dart';
+import 'package:innerexec/presentation/screens/job/job_details_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Jobs screen with pixel-perfect design
 class JobsScreen extends StatefulWidget {
@@ -35,6 +38,15 @@ class _JobsScreenState extends State<JobsScreen> {
           ),
         ],
       ),
+    ),
+    floatingActionButton: FloatingActionButton(
+      backgroundColor: const Color(0xFF8A2BE2),
+      onPressed: () {
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (context) => const AddJobScreen()));
+      },
+      child: const Icon(Icons.add, color: Colors.white),
     ),
   );
 
@@ -134,48 +146,59 @@ class _JobsScreenState extends State<JobsScreen> {
         ),
       );
 
-  /// Builds the job listings
-  Widget _buildJobListings() => ListView(
-    padding: const EdgeInsets.symmetric(horizontal: 20),
-    children: [
-      _buildJobCard(
-        'UI/UX DESIGNER',
-        'NovaTech Solutions',
-        'Match with your needs',
-        ['Full Time', 'Hybrid', '1-2 Year'],
-        '\$800/month',
-        Icons.design_services,
-      ),
-      const SizedBox(height: 16),
-      _buildJobCard(
-        'UI/UX DESIGNER',
-        'NovaTech Solutions',
-        'Match with your needs',
-        ['Full Time', 'Hybrid', '1-2 Year'],
-        '\$800/month',
-        Icons.design_services,
-      ),
-      const SizedBox(height: 16),
-      _buildJobCard(
-        'UI/UX DESIGNER',
-        'NovaTech Solutions',
-        'Match with your needs',
-        ['Full Time', 'Hybrid', '1-2 Year'],
-        '\$800/month',
-        Icons.design_services,
-      ),
-      const SizedBox(height: 16),
-      _buildJobCard(
-        'UI/UX DESIGNER',
-        'NovaTech Solutions',
-        'Match with your needs',
-        ['Full Time', 'Hybrid', '1-2 Year'],
-        '\$800/month',
-        Icons.design_services,
-      ),
-      const SizedBox(height: 100), // Space for bottom nav
-    ],
-  );
+  /// Builds the job listings (from Firestore)
+  Widget _buildJobListings() =>
+      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('jobs')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(
+              child: Text(
+                'No jobs yet. Tap + to add one.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  color: Color(0xFF777777),
+                ),
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: docs.length + 1,
+            separatorBuilder: (_, __) => const SizedBox(height: 16),
+            itemBuilder: (context, i) {
+              if (i == docs.length) return const SizedBox(height: 100);
+              final data = docs[i].data();
+              final String title = (data['title'] ?? '').toString();
+              final String company = (data['company'] ?? '').toString();
+              final String salary = (data['salary'] ?? '').toString();
+              final String imageUrl = (data['imageUrl'] ?? '').toString();
+              final List<String> tags = [
+                (data['jobType'] ?? '').toString(),
+                (data['placement'] ?? '').toString(),
+                (data['experience'] ?? '').toString(),
+              ].where((e) => e.isNotEmpty).toList();
+              return _buildJobCard(
+                title,
+                company,
+                'Match with your needs',
+                tags,
+                salary,
+                Icons.work_outline,
+                imageUrl: imageUrl,
+                jobId: docs[i].id,
+              );
+            },
+          );
+        },
+      );
 
   /// Builds individual job card
   Widget _buildJobCard(
@@ -184,95 +207,133 @@ class _JobsScreenState extends State<JobsScreen> {
     String description,
     List<String> tags,
     String salary,
-    IconData iconData,
-  ) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Colors.grey[50],
-      borderRadius: BorderRadius.circular(12),
-      border: Border(
-        left: BorderSide(color: const Color(0xFF8A2BE2), width: 4),
+    IconData iconData, {
+    String? imageUrl,
+    String? jobId,
+  }) => GestureDetector(
+    onTap: () {
+      // Build details from the same data we show in the card
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => JobDetailsScreen(
+            jobId: jobId,
+            company: company,
+            title: title,
+            tags: tags,
+            salary: salary.isNotEmpty ? salary : '',
+            placement: tags.length > 1 ? tags[1] : '',
+            experience: tags.length > 2 ? tags[2] : '',
+            applicants: 200,
+            posterName: company,
+            posterRole: 'Job Recruiter at ' + company,
+            about: 'About the role at ' + company + ': ' + description,
+            responsibilities: const [
+              'Collaborate with cross-functional teams.',
+              'Deliver high-quality work on time.',
+              'Continuously improve processes and outcomes.',
+            ],
+            imageUrl: imageUrl ?? '',
+          ),
+        ),
+      );
+    },
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: const Border(
+          left: BorderSide(color: Color(0xFF8A2BE2), width: 4),
+        ),
       ),
-    ),
-    child: Column(
-      children: [
-        Row(
-          children: [
-            // Job Icon
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: const Color(0xFF8A2BE2).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              // Job Icon / Image
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8A2BE2).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  image: (imageUrl != null && imageUrl.isNotEmpty)
+                      ? DecorationImage(
+                          image: NetworkImage(imageUrl),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
+                child: (imageUrl == null || imageUrl.isEmpty)
+                    ? Icon(iconData, color: const Color(0xFF8A2BE2), size: 24)
+                    : null,
               ),
-              child: Icon(iconData, color: const Color(0xFF8A2BE2), size: 24),
-            ),
-            const SizedBox(width: 16),
-            // Job Details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF000000),
+              const SizedBox(width: 16),
+              // Job Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF000000),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    company,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF666666),
+                    const SizedBox(height: 4),
+                    Text(
+                      company,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0xFF666666),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF666666),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0xFF666666),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Tags and Salary row
-        Row(
-          children: [
-            // Tags - positioned horizontally
-            Expanded(
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: tags.map((tag) => _buildTag(tag)).toList(),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Tags and Salary row
+          Row(
+            children: [
+              // Tags - positioned horizontally
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: tags.map((tag) => _buildTag(tag)).toList(),
+                ),
               ),
-            ),
-            // Salary - positioned at the right
-            Text(
-              salary,
-              style: const TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF000000),
+              // Salary - positioned at the right
+              Text(
+                salary,
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF000000),
+                ),
               ),
-            ),
-          ],
-        ),
-      ],
+            ],
+          ),
+        ],
+      ),
     ),
   );
 

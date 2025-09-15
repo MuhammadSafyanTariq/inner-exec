@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
 import 'package:innerexec/presentation/widgets/common/custom_button.dart';
 import 'package:innerexec/core/utils/validators.dart';
@@ -16,6 +19,8 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
 
   @override
@@ -31,24 +36,84 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         _isLoading = true;
       });
 
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 2));
+      try {
+        final email = _emailController.text.trim();
 
-      setState(() {
-        _isLoading = false;
-      });
+        // First check if user exists in Firestore
+        final userQuery = await _firestore
+            .collection('users')
+            .where('email', isEqualTo: email)
+            .get();
 
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Password reset link sent to your email!'),
-            backgroundColor: Color(0xFF8A2BE2),
-          ),
-        );
+        if (userQuery.docs.isEmpty) {
+          // User doesn't exist in our database
+          if (mounted) {
+            Fluttertoast.showToast(
+              msg: 'No account found with this email address.',
+              toastLength: Toast.LENGTH_LONG,
+              gravity: ToastGravity.BOTTOM,
+              backgroundColor: Colors.red,
+              textColor: Colors.white,
+            );
+          }
+          return;
+        }
 
-        // Navigate back to login screen
-        Navigator.of(context).pop();
+        // User exists, now send password reset email
+        await _auth.sendPasswordResetEmail(email: email);
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'Password reset link sent to your email!',
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: const Color(0xFF8A2BE2),
+            textColor: Colors.white,
+          );
+
+          // Navigate back to login screen
+          Navigator.of(context).pop();
+        }
+      } on FirebaseAuthException catch (e) {
+        String errorMessage = 'Failed to send reset email. Please try again.';
+
+        switch (e.code) {
+          case 'user-not-found':
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'invalid-email':
+            errorMessage = 'Invalid email address.';
+            break;
+          case 'too-many-requests':
+            errorMessage = 'Too many requests. Please try again later.';
+            break;
+        }
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: errorMessage,
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'An unexpected error occurred. Please try again.',
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     }
   }

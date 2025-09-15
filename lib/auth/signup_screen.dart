@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
 import 'package:innerexec/presentation/widgets/common/custom_button.dart';
 import 'package:innerexec/auth/login_screen.dart';
+import 'package:innerexec/presentation/screens/profile_setup_screen.dart';
 import 'package:innerexec/core/utils/validators.dart';
 
 /// Sign-up screen with pixel-perfect design matching the provided screenshot
@@ -18,6 +21,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isLoading = false;
 
   @override
@@ -35,21 +39,77 @@ class _SignupScreenState extends State<SignupScreen> {
         _isLoading = true;
       });
 
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 2));
+      try {
+        // Create user with email and password
+        final UserCredential userCredential = await _auth
+            .createUserWithEmailAndPassword(
+              email: _emailController.text.trim(),
+              password: _passwordController.text,
+            );
 
-      setState(() {
-        _isLoading = false;
-      });
-
-      // Navigate to home or next screen
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account created successfully!'),
-            backgroundColor: Color(0xFF8A2BE2),
-          ),
+        // Update display name
+        await userCredential.user?.updateDisplayName(
+          _fullNameController.text.trim(),
         );
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'Account created successfully!',
+            toastLength: Toast.LENGTH_SHORT,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: const Color(0xFF8A2BE2),
+            textColor: Colors.white,
+          );
+
+          // Navigate to profile setup screen with full name
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) =>
+                  ProfileSetupScreen(fullName: _fullNameController.text.trim()),
+            ),
+          );
+        }
+      } on FirebaseAuthException catch (e) {
+        String errorMessage = 'Sign up failed. Please try again.';
+
+        switch (e.code) {
+          case 'weak-password':
+            errorMessage =
+                'Password is too weak. Please choose a stronger password.';
+            break;
+          case 'email-already-in-use':
+            errorMessage = 'An account already exists with this email address.';
+            break;
+          case 'invalid-email':
+            errorMessage = 'Invalid email address.';
+            break;
+        }
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: errorMessage,
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'An unexpected error occurred. Please try again.',
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     }
   }
@@ -86,9 +146,10 @@ class _SignupScreenState extends State<SignupScreen> {
               const SizedBox(height: 30),
               // Sign up button
               _buildSignUpButton(),
-              const SizedBox(height: 120),
+              const SizedBox(height: 110),
               // Login link
               _buildLoginLink(),
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -110,7 +171,7 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         textAlign: TextAlign.center,
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 5),
       // Subtitle
       const Text(
         'Create your account and take the first\nstep toward your dream career.',
@@ -122,6 +183,7 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         textAlign: TextAlign.center,
       ),
+      const SizedBox(height: 30),
     ],
   );
 

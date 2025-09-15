@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
 import 'package:innerexec/presentation/widgets/common/custom_button.dart';
 import 'package:innerexec/core/utils/validators.dart';
 import 'package:innerexec/auth/signup_screen.dart';
 import 'package:innerexec/auth/forgot_password_screen.dart';
 import 'package:innerexec/presentation/screens/main_screen.dart';
+import 'package:innerexec/presentation/screens/profile_setup_screen.dart';
 
 /// Pixel-perfect login screen based on design specifications
 class LoginScreen extends StatefulWidget {
@@ -19,6 +23,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -30,21 +36,99 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Handles the login form submission
   Future<void> _handleLogin() async {
     if (_formKey.currentState?.validate() ?? false) {
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 1));
+      setState(() {
+        _isLoading = true;
+      });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Login successful!'),
-            backgroundColor: Color(0xFF8A2BE2),
-          ),
+      try {
+        // Sign in with email and password
+        final UserCredential cred = await _auth.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
         );
 
-        // Navigate to Main Screen (Dashboard) after successful login
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MainScreen()),
-        );
+        final User? user = cred.user;
+
+        // Default: go to profile setup if user doc missing or flag not set
+        bool goToHome = false;
+        if (user != null) {
+          try {
+            final doc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get();
+            if (doc.exists) {
+              final data = doc.data();
+              goToHome = (data?['isProfileSetup'] == true);
+            }
+          } catch (_) {
+            goToHome = false;
+          }
+        }
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'Login successful!',
+            toastLength: Toast.LENGTH_SHORT,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: const Color(0xFF8A2BE2),
+            textColor: Colors.white,
+          );
+
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => goToHome
+                  ? const MainScreen()
+                  : ProfileSetupScreen(fullName: user?.displayName ?? ''),
+            ),
+          );
+        }
+      } on FirebaseAuthException catch (e) {
+        String errorMessage = 'Login failed. Please try again.';
+
+        switch (e.code) {
+          case 'user-not-found':
+            errorMessage = 'No user found with this email address.';
+            break;
+          case 'wrong-password':
+            errorMessage = 'Incorrect password. Please try again.';
+            break;
+          case 'invalid-email':
+            errorMessage = 'Invalid email address.';
+            break;
+          case 'user-disabled':
+            errorMessage = 'This account has been disabled.';
+            break;
+          case 'too-many-requests':
+            errorMessage = 'Too many failed attempts. Please try again later.';
+            break;
+        }
+
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: errorMessage,
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: 'An unexpected error occurred. Please try again.',
+            toastLength: Toast.LENGTH_LONG,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     }
   }
@@ -192,7 +276,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Log In Button - Purple background
                 CustomButton(
                   text: 'Log In',
-                  onPressed: _handleLogin,
+                  onPressed: _isLoading ? null : _handleLogin,
+                  isLoading: _isLoading,
                   isFullWidth: true,
                   height: 50,
                   backgroundColor: const Color(0xFF8A2BE2), // Purple color

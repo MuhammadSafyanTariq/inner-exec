@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "175125533624",
+    "project_id": "innerexec-bd12d",
+    "storage_bucket": "innerexec-bd12d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:175125533624:android:3c0a876ea96795a918f54d",
+        "android_client_info": {
+          "package_name": "com.example.innerexec"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzv2IMAz-BfwFGoz9gUJi3BJc2WJtMK_o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

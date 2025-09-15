@@ -49,15 +49,6 @@ class OnboardingScreen4 extends StatelessWidget {
                         fit: BoxFit.contain,
                       ),
                     ),
-                    // Additional board image for pixel perfect design
-                    Positioned(
-                      child: Image.asset(
-                        'assets/images/board_4.1.png',
-                        width: 133,
-                        height: 129,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
                   ],
                 ),
               ),
