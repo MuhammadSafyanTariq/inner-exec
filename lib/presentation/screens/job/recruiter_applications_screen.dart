@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class RecruiterApplicationsScreen extends StatelessWidget {
   const RecruiterApplicationsScreen({super.key});
@@ -73,7 +74,7 @@ class _RecruiterApplicationsList extends StatelessWidget {
               title: (data['title'] ?? '').toString(),
               company: (data['company'] ?? '').toString(),
               dateApplied: (data['appliedAtDisplay'] ?? '').toString(),
-              status: (data['status'] ?? 'Applied').toString(),
+              status: (data['status'] ?? 'Pending').toString(),
               imageUrl: (data['imageUrl'] ?? '').toString(),
               uid: (data['uid'] ?? '').toString(),
               resumeUrl: (data['resumeUrl'] ?? '').toString(),
@@ -171,6 +172,26 @@ class _ApplicantTile extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF000000),
                   ),
+                ),
+                const SizedBox(height: 2),
+                FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  future: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(uid)
+                      .get(),
+                  builder: (context, snapshot) {
+                    final String fullName =
+                        (snapshot.data?.data()?['fullName'] ?? 'Applicant')
+                            .toString();
+                    return Text(
+                      fullName,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        color: Color(0xFF333333),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -318,14 +339,56 @@ class _ApplicantDetailScreen extends StatelessWidget {
                           color: Color(0xFF777777),
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(uid)
+                            .get(),
+                        builder: (context, snapshot) {
+                          final String phone =
+                              (snapshot.data?.data()?['phone'] ?? '—')
+                                  .toString();
+                          return Text(
+                            'Phone: $phone',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              color: Color(0xFF777777),
+                            ),
+                          );
+                        },
+                      ),
                       if (resumeUrl.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Resume: $resumeUrl',
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12,
-                            color: Color(0xFF777777),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 40,
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              final String url = resumeUrl;
+                              if (url.isEmpty) return;
+                              try {
+                                final Uri uri = Uri.parse(url);
+                                await launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                );
+                              } catch (_) {}
+                            },
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF8A2BE2)),
+                              foregroundColor: const Color(0xFF8A2BE2),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text(
+                              'View Resume',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
                       ],

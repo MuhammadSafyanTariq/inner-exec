@@ -16,6 +16,14 @@ class JobsScreen extends StatefulWidget {
 
 class _JobsScreenState extends State<JobsScreen> {
   bool _isJobsSelected = true;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -55,12 +63,14 @@ class _JobsScreenState extends State<JobsScreen> {
     padding: const EdgeInsets.symmetric(horizontal: 20),
     child: CustomTextField(
       hintText: 'Search',
+      controller: _searchController,
       width: double.infinity,
       height: 54,
       borderRadius: 8,
       borderWidth: 1,
       fillColor: Colors.grey[100],
       borderColor: Colors.grey[300]!,
+      onChanged: (val) => setState(() => _searchQuery = val.trim()),
       suffixIcon: Container(
         width: 24,
         height: 24,
@@ -157,7 +167,29 @@ class _JobsScreenState extends State<JobsScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snapshot.data?.docs ?? [];
+          List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
+              snapshot.data?.docs ?? [];
+          // Client-side filter for search (title, company, tags, salary)
+          if (_searchQuery.isNotEmpty) {
+            final q = _searchQuery.toLowerCase();
+            docs = docs.where((d) {
+              final m = d.data();
+              final title = (m['title'] ?? '').toString().toLowerCase();
+              final company = (m['company'] ?? '').toString().toLowerCase();
+              final jobType = (m['jobType'] ?? '').toString().toLowerCase();
+              final placement = (m['placement'] ?? '').toString().toLowerCase();
+              final experience = (m['experience'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              final salary = (m['salary'] ?? '').toString().toLowerCase();
+              return title.contains(q) ||
+                  company.contains(q) ||
+                  jobType.contains(q) ||
+                  placement.contains(q) ||
+                  experience.contains(q) ||
+                  salary.contains(q);
+            }).toList();
+          }
           if (docs.isEmpty) {
             return const Center(
               child: Text(
@@ -322,7 +354,12 @@ class _JobsScreenState extends State<JobsScreen> {
               ),
               // Salary - positioned at the right
               Text(
-                salary,
+                (() {
+                  String t = salary.trim();
+                  if (!t.startsWith('\$')) t = '\$' + t;
+                  if (!t.toLowerCase().endsWith('/month')) t = '$t / month';
+                  return t;
+                })(),
                 style: const TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 16,

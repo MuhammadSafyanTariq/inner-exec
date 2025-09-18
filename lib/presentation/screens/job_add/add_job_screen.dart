@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:innerexec/core/services/cloudinary_service.dart';
 import 'package:innerexec/presentation/widgets/common/custom_button.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
@@ -417,6 +418,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
         'about': _aboutController.text.trim(),
         'responsibilities': _respController.text.trim(),
         'imageUrl': imageUrl,
+        'ownerUid': FirebaseAuth.instance.currentUser?.uid ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       });
 

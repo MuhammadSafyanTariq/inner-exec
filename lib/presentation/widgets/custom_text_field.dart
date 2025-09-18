@@ -29,6 +29,9 @@ class CustomTextField extends StatelessWidget {
   /// Callback when the text changes
   final void Function(String)? onChanged;
 
+  /// Callback when the field is tapped (useful for date pickers)
+  final VoidCallback? onTap;
+
   /// Whether the text field is enabled
   final bool enabled;
 
@@ -86,6 +89,7 @@ class CustomTextField extends StatelessWidget {
     this.validator,
     this.onFieldSubmitted,
     this.onChanged,
+    this.onTap,
     this.enabled = true,
     this.readOnly = false,
     this.maxLines = 1,
@@ -127,6 +131,7 @@ class CustomTextField extends StatelessWidget {
         validator: validator,
         onFieldSubmitted: onFieldSubmitted,
         onChanged: onChanged,
+        onTap: onTap,
         enabled: enabled,
         readOnly: readOnly,
         maxLines: maxLines,

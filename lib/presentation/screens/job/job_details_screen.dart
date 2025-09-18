@@ -206,10 +206,29 @@ class _ScaffoldDetails extends StatelessWidget {
               label1: 'Experience',
               value1: experience,
               label2: 'Month Salary',
-              value2: salary,
+              value2: (() {
+                String t = salary.trim();
+                if (!t.startsWith('\$')) t = '\$' + t;
+                if (!t.toLowerCase().endsWith('/month')) t = '$t / month';
+                return t;
+              })(),
             ),
             const SizedBox(height: 14),
-            _OneCol(label: 'Applicants', value: applicants.toString()),
+            if (jobId != null && jobId!.isNotEmpty)
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('applications')
+                    .where('jobId', isEqualTo: jobId)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  final int count = snapshot.hasData
+                      ? (snapshot.data?.docs.length ?? 0)
+                      : 0;
+                  return _OneCol(label: 'Applicants', value: count.toString());
+                },
+              )
+            else
+              _OneCol(label: 'Applicants', value: applicants.toString()),
             const SizedBox(height: 16),
             _PostedBy(name: posterName, role: posterRole),
             const SizedBox(height: 20),
@@ -316,7 +335,7 @@ class _HeroCard extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: const Color(0xFFE8D9FF),
+      color: Color.fromARGB(255, 173, 129, 240),
       borderRadius: BorderRadius.circular(12),
     ),
     child: Stack(
@@ -353,7 +372,7 @@ class _HeroCard extends StatelessWidget {
                       style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontWeight: FontWeight.w700,
-                        fontSize: 18,
+                        fontSize: 20,
                         color: Color(0xFF000000),
                       ),
                     ),
@@ -362,8 +381,8 @@ class _HeroCard extends StatelessWidget {
                       title,
                       style: const TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 13,
-                        color: Color(0xFF333333),
+                        fontSize: 16,
+                        color: Color.fromARGB(255, 0, 0, 0),
                       ),
                     ),
                   ],
@@ -390,7 +409,7 @@ class _HeroCard extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 10,
-                          color: Color(0xFF333333),
+                          color: Color.fromARGB(255, 0, 0, 0),
                         ),
                       ),
                     ),
@@ -403,63 +422,72 @@ class _HeroCard extends StatelessWidget {
         Positioned(
           left: 0,
           right: 0,
-          bottom: -60,
-          child: Container(
-            height: 64,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: const Color(0xFF8A2BE2),
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.10),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.attach_money, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    salary,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: Colors.white,
-                    ),
+          bottom: -64,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              height: 64,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF8B51FE),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.10),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
                   ),
-                ),
-                SizedBox(
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              ApplyJobScreen(jobId: jobId, company: company),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF8A2BE2),
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      textStyle: const TextStyle(
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.attach_money, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      (() {
+                        String t = salary.trim();
+                        if (!t.startsWith('\$')) t = '\$' + t;
+                        if (!t.toLowerCase().endsWith('/month'))
+                          t = '$t / month';
+                        return t;
+                      })(),
+                      style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: Colors.white,
                       ),
                     ),
-                    child: const Text('Apply'),
                   ),
-                ),
-              ],
+                  SizedBox(
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ApplyJobScreen(jobId: jobId, company: company),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF8A2BE2),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: const Text('Apply'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -518,7 +546,8 @@ class _Info extends StatelessWidget {
         label,
         style: const TextStyle(
           fontFamily: 'Poppins',
-          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          fontSize: 15,
           color: Color(0xFF777777),
         ),
       ),
@@ -563,9 +592,10 @@ class _PostedBy extends StatelessWidget {
             Text(
               name,
               style: const TextStyle(
+                fontSize: 15,
                 fontFamily: 'Poppins',
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF333333),
+                color: Color.fromARGB(255, 0, 0, 0),
               ),
             ),
             const SizedBox(height: 2),

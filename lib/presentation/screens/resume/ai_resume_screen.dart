@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
+import 'package:innerexec/core/services/openai_service.dart';
+import 'package:innerexec/presentation/screens/resume/ai_resume_preview_screen.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart' as pdfc;
+import 'package:printing/printing.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:innerexec/core/services/cloudinary_service.dart';
+import 'package:file_picker/file_picker.dart' as fp;
 
 /// AI Resume & Cover Letter screen with multi-step form using IndexedStack
 class AiResumeScreen extends StatefulWidget {
@@ -34,6 +43,28 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
 
   // Variables for step 4 (Skills & Achievements)
   final List<String> _selectedSkills = [];
+  String? _generatedResume;
+  bool _loading = false;
+
+  // Resume-only headshot state
+  String? _headshotLocalPath;
+  String? _headshotUrl; // Stored only for resume generation/PDF
+  bool _isUploadingHeadshot = false;
+
+  // Certifications upload state
+  bool _isUploadingCerts = false;
+  final List<String> _certificationUrls = [];
+  final List<String> _certificationNames = [];
+
+  // Style & Tone (Step 5)
+  final List<String> _styleOptions = const [
+    'Professional',
+    'Modern',
+    'Creative',
+    'Concise',
+    'ATS-friendly',
+  ];
+  String? _selectedStyle;
 
   @override
   void dispose() {
@@ -52,6 +83,317 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+    OpenAiService.init();
+  }
+
+  String _collectResumeData() {
+    return """
+Name: ${_fullNameController.text}
+Phone: ${_phoneNumberController.text}
+Links: ${_linksController.text}
+
+Work Experience:
+${_jobTitleController.text} at ${_companyNameController.text}
+From ${_startDateController.text} to ${_endDateController.text}
+Responsibilities: ${_responsibilitiesController.text}
+
+Education:
+${_degreeTitleController.text} at ${_instituteNameController.text}
+From ${_educationStartDateController.text} to ${_educationEndDateController.text}
+
+Skills: ${_selectedSkills.join(", ")}
+Achievements: 
+""";
+  }
+
+  Future<void> _savePdf(String text) async {
+    final pdf = pw.Document();
+
+    // Colors & text styles
+    final pdfc.PdfColor purple = pdfc.PdfColor.fromInt(0xFF8A2BE2);
+    final sectionTitle = pw.TextStyle(
+      fontSize: 12,
+      fontWeight: pw.FontWeight.bold,
+      color: purple,
+    );
+    final bodyStyle = const pw.TextStyle(fontSize: 10, height: 1.35);
+    final labelStyle = pw.TextStyle(
+      fontSize: 10,
+      color: pdfc.PdfColors.grey700,
+    );
+
+    // Try to load headshot image for PDF if available
+    pw.ImageProvider? headshotImage;
+    if (_headshotUrl != null && _headshotUrl!.isNotEmpty) {
+      try {
+        headshotImage = await networkImage(_headshotUrl!);
+      } catch (_) {
+        headshotImage = null;
+      }
+    }
+
+    // Gather structured data from form
+    final String fullName = _fullNameController.text.isNotEmpty
+        ? _fullNameController.text
+        : 'Your Name';
+    final String phone = _phoneNumberController.text;
+    final String links = _linksController.text;
+    final String jobTitle = _jobTitleController.text;
+    final String companyName = _companyNameController.text;
+    final String startDate = _startDateController.text;
+    final String endDate = _endDateController.text;
+    final String responsibilities = _responsibilitiesController.text;
+    final String degree = _degreeTitleController.text;
+    final String institute = _instituteNameController.text;
+    final String eduStart = _educationStartDateController.text;
+    final String eduEnd = _educationEndDateController.text;
+
+    // About text (from AI or fallback)
+    String aboutMe = '';
+    if (text.trim().isNotEmpty) {
+      aboutMe = text
+          .trim()
+          .split('\n')
+          .firstWhere(
+            (line) => line.trim().isNotEmpty,
+            orElse: () => text.trim(),
+          );
+      if (aboutMe.length > 350) {
+        aboutMe = aboutMe.substring(0, 350) + '...';
+      }
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: pdfc.PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (context) => [
+          pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: purple, width: 2),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            padding: const pw.EdgeInsets.fromLTRB(18, 18, 18, 22),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Header
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    if (headshotImage != null)
+                      pw.Container(
+                        width: 64,
+                        height: 64,
+                        decoration: pw.BoxDecoration(
+                          shape: pw.BoxShape.circle,
+                          image: pw.DecorationImage(
+                            image: headshotImage,
+                            fit: pw.BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                    if (headshotImage != null) pw.SizedBox(width: 14),
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            fullName.toUpperCase(),
+                            style: pw.TextStyle(
+                              fontSize: 24,
+                              fontWeight: pw.FontWeight.bold,
+                              color: purple,
+                            ),
+                          ),
+                          if (_selectedStyle != null)
+                            pw.Text(_selectedStyle!, style: labelStyle),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 10),
+                pw.Container(height: 2, color: purple),
+                pw.SizedBox(height: 10),
+
+                // Two columns
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    // Left column
+                    pw.Expanded(
+                      flex: 1,
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('ABOUT ME', style: sectionTitle),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            aboutMe.isNotEmpty ? aboutMe : ' ',
+                            style: bodyStyle,
+                          ),
+                          pw.SizedBox(height: 14),
+
+                          pw.Text('SKILLS', style: sectionTitle),
+                          pw.SizedBox(height: 6),
+                          if (_selectedSkills.isNotEmpty)
+                            pw.Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                for (final s in _selectedSkills)
+                                  pw.Container(
+                                    padding: const pw.EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: pw.BoxDecoration(
+                                      color: pdfc.PdfColor.fromInt(0xFFF3EAFF),
+                                      borderRadius: pw.BorderRadius.circular(6),
+                                      border: pw.Border.all(
+                                        color: purple,
+                                        width: 0.7,
+                                      ),
+                                    ),
+                                    child: pw.Text(s, style: bodyStyle),
+                                  ),
+                              ],
+                            )
+                          else
+                            pw.Text(' ', style: bodyStyle),
+                          pw.SizedBox(height: 14),
+
+                          if (_certificationUrls.isNotEmpty) ...[
+                            pw.Text('CERTIFICATIONS', style: sectionTitle),
+                            pw.SizedBox(height: 6),
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                for (
+                                  int i = 0;
+                                  i < _certificationUrls.length;
+                                  i++
+                                )
+                                  pw.Padding(
+                                    padding: const pw.EdgeInsets.only(
+                                      bottom: 6,
+                                    ),
+                                    child: pw.Row(
+                                      crossAxisAlignment:
+                                          pw.CrossAxisAlignment.start,
+                                      children: [
+                                        pw.Text('•  '),
+                                        pw.Expanded(
+                                          child: pw.UrlLink(
+                                            destination: _certificationUrls[i],
+                                            child: pw.Text(
+                                              _certificationNames.length > i
+                                                  ? _certificationNames[i]
+                                                  : _certificationUrls[i],
+                                              style: bodyStyle.copyWith(
+                                                color: pdfc.PdfColors.blue,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                    pw.SizedBox(width: 16),
+
+                    // Right column
+                    pw.Expanded(
+                      flex: 1,
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('EDUCATION', style: sectionTitle),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            [
+                              if (degree.isNotEmpty) degree,
+                              if (institute.isNotEmpty) institute,
+                              if (eduStart.isNotEmpty || eduEnd.isNotEmpty)
+                                '($eduStart – $eduEnd)',
+                            ].where((e) => e.trim().isNotEmpty).join(' \n '),
+                            style: bodyStyle,
+                          ),
+                          pw.SizedBox(height: 14),
+
+                          pw.Text('EXPERIENCE', style: sectionTitle),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            [
+                              if (jobTitle.isNotEmpty && companyName.isNotEmpty)
+                                '$jobTitle – $companyName',
+                              if (startDate.isNotEmpty || endDate.isNotEmpty)
+                                '($startDate – $endDate)',
+                            ].where((e) => e.trim().isNotEmpty).join(' '),
+                            style: bodyStyle.copyWith(
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          if (responsibilities.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 4),
+                            pw.Bullet(
+                              text: responsibilities,
+                              style: bodyStyle,
+                              bulletColor: purple,
+                            ),
+                          ],
+                          pw.SizedBox(height: 14),
+
+                          pw.Text('CONTACT', style: sectionTitle),
+                          pw.SizedBox(height: 6),
+                          pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              if (phone.isNotEmpty)
+                                pw.Row(
+                                  children: [
+                                    pw.Text('Phone: ', style: labelStyle),
+                                    pw.Text(phone, style: bodyStyle),
+                                  ],
+                                ),
+                              if (links.isNotEmpty) ...[
+                                pw.SizedBox(height: 4),
+                                pw.Row(
+                                  children: [
+                                    pw.Text('Links: ', style: labelStyle),
+                                    pw.Expanded(
+                                      child: pw.Text(links, style: bodyStyle),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'AI_Resume.pdf');
+  }
+
   /// Navigates back to the previous screen
   void _navigateBack() {
     Navigator.of(context).pop();
@@ -64,14 +406,45 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
     });
   }
 
-  /// Handles image upload
-  void _handleImageUpload() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Image upload feature coming soon!'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
-    );
+  /// Handles headshot picking and upload to Cloudinary (resume-only)
+  Future<void> _handleImageUpload() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
+
+      setState(() {
+        _headshotLocalPath = picked.path;
+        _isUploadingHeadshot = true;
+      });
+
+      final cloud = CloudinaryService();
+      final String fileName =
+          'resume_headshot_${DateTime.now().millisecondsSinceEpoch}';
+      final String url = await cloud.uploadCustomImage(
+        imagePath: picked.path,
+        folder: 'resume_headshots',
+        fileName: fileName,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _headshotUrl = url;
+        _isUploadingHeadshot = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isUploadingHeadshot = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to upload image. Please try again.'),
+          backgroundColor: Color(0xFF8A2BE2),
+        ),
+      );
+    }
   }
 
   /// Handles date picking for start date
@@ -149,7 +522,7 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   }
 
   /// Shows skills selection dialog
-  void _showSkillsDialog() {
+  Future<void> _showSkillsDialog() async {
     final List<String> availableSkills = [
       'JavaScript',
       'Python',
@@ -172,11 +545,14 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
       'UI/UX Design',
       'Agile/Scrum',
     ];
+    final List<String> tempSelected = List<String>.from(_selectedSkills);
 
-    showDialog(
+    final List<String>? result = await showDialog<List<String>>(
       context: context,
       builder: (BuildContext context) => StatefulBuilder(
         builder: (context, setState) {
+          final TextEditingController manualController =
+              TextEditingController();
           return AlertDialog(
             title: const Text(
               'Select Skills',
@@ -187,34 +563,84 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
             ),
             content: SizedBox(
               width: double.maxFinite,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: availableSkills.length,
-                itemBuilder: (context, index) {
-                  final skill = availableSkills[index];
-                  final isSelected = _selectedSkills.contains(skill);
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: availableSkills.length,
+                      itemBuilder: (context, index) {
+                        final skill = availableSkills[index];
+                        final isSelected = tempSelected.contains(skill);
 
-                  return CheckboxListTile(
-                    title: Text(
-                      skill,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                      ),
+                        return CheckboxListTile(
+                          title: Text(
+                            skill,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                            ),
+                          ),
+                          value: isSelected,
+                          onChanged: (bool? value) {
+                            setState(() {
+                              if (value == true) {
+                                if (!tempSelected.contains(skill)) {
+                                  tempSelected.add(skill);
+                                }
+                              } else {
+                                tempSelected.remove(skill);
+                              }
+                            });
+                          },
+                          activeColor: const Color(0xFF8A2BE2),
+                        );
+                      },
                     ),
-                    value: isSelected,
-                    onChanged: (bool? value) {
-                      setState(() {
-                        if (value == true) {
-                          _selectedSkills.add(skill);
-                        } else {
-                          _selectedSkills.remove(skill);
-                        }
-                      });
-                    },
-                    activeColor: const Color(0xFF8A2BE2),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: manualController,
+                          decoration: const InputDecoration(
+                            hintText: 'Add another skill',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          final String value = manualController.text.trim();
+                          if (value.isNotEmpty &&
+                              !tempSelected.contains(value)) {
+                            setState(() {
+                              tempSelected.add(value);
+                              manualController.clear();
+                            });
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF8A2BE2),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                        ),
+                        child: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             actions: [
@@ -232,10 +658,7 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
               ),
               ElevatedButton(
                 onPressed: () {
-                  setState(() {
-                    // Update the main widget state
-                  });
-                  Navigator.of(context).pop();
+                  Navigator.of(context).pop(tempSelected);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF8A2BE2),
@@ -251,56 +674,247 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
         },
       ),
     );
+
+    if (!mounted) return;
+    if (result != null) {
+      setState(() {
+        _selectedSkills
+          ..clear()
+          ..addAll(result);
+      });
+    }
   }
 
-  /// Handles file upload for certifications
-  void _uploadCertifications() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('File upload functionality coming soon!'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
-    );
+  /// Handles file upload for certifications (PDF/DOC/DOCX up to 5MB each)
+  Future<void> _uploadCertifications() async {
+    try {
+      final fp.FilePickerResult? result = await fp.FilePicker.platform
+          .pickFiles(
+            allowMultiple: true,
+            type: fp.FileType.custom,
+            allowedExtensions: const ['pdf', 'doc', 'docx'],
+            withData: true,
+          );
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() => _isUploadingCerts = true);
+
+      final cloud = CloudinaryService();
+      for (final file in result.files) {
+        final int sizeBytes = file.size;
+        // 5 MB limit
+        if (sizeBytes > 5 * 1024 * 1024) {
+          continue; // Skip oversized
+        }
+        final String? path = file.path;
+        if (path == null) continue;
+
+        final String fileName =
+            'cert_${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+        final String url = await cloud.uploadCustomImage(
+          imagePath: path,
+          folder: 'certifications',
+          fileName: fileName,
+        );
+        _certificationUrls.add(url);
+        _certificationNames.add(file.name);
+      }
+
+      if (!mounted) return;
+      setState(() => _isUploadingCerts = false);
+
+      if (_certificationUrls.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No valid files uploaded. Max 5MB, PDF/DOC/DOCX.'),
+            backgroundColor: Color(0xFF8A2BE2),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isUploadingCerts = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to upload certifications. Please try again.'),
+          backgroundColor: Color(0xFF8A2BE2),
+        ),
+      );
+    }
   }
 
   /// Handles sharing the resume
-  void _shareResume() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Share functionality coming soon!'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
-    );
+  Future<void> _shareResume() async {
+    // Generate resume content from form data if AI generation failed or wasn't used
+    String resumeContent = _generatedResume ?? _collectResumeData();
+
+    if (resumeContent.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in some basic information first.'),
+          backgroundColor: Color(0xFF8A2BE2),
+        ),
+      );
+      return;
+    }
+    await _savePdf(resumeContent);
   }
 
   /// Handles editing the resume
-  void _editResume() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Edit functionality coming soon!'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
+  Future<void> _editResume() async {
+    final TextEditingController controller = TextEditingController(
+      text: _generatedResume ?? '',
     );
+    final String? result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Edit Generated Resume',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: TextField(
+              controller: controller,
+              maxLines: 12,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Edit your resume text here',
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8A2BE2),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      setState(() => _generatedResume = result);
+    }
   }
 
   /// Handles regenerating the resume
-  void _regenerateResume() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Regenerating resume...'),
-        backgroundColor: Color(0xFF8A2BE2),
+  Future<void> _regenerateResume() async {
+    setState(() => _loading = true);
+    try {
+      final resumeText = _collectResumeData();
+      final jobDescription =
+          'Example job description here\nPreferred Resume Style: ' +
+          (_selectedStyle ?? 'Professional');
+      final aiResume = await OpenAiService.generateResume(
+        resumeText,
+        jobDescription,
+        _selectedStyle ?? 'Professional',
+      );
+      setState(() => _generatedResume = aiResume);
+    } catch (e) {
+      if (mounted) {
+        // Check if it's an API key error
+        if (e.toString().contains('401') || e.toString().contains('API key')) {
+          _showApiKeyDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error generating resume: $e'),
+              backgroundColor: const Color(0xFF8A2BE2),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Shows API key setup dialog
+  void _showApiKeyDialog() {
+    final TextEditingController keyController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('OpenAI API Key Required'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'To use AI resume generation, you need to set up your OpenAI API key.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: keyController,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                hintText: 'sk-...',
+                border: OutlineInputBorder(),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'You can get your API key from: https://platform.openai.com/account/api-keys',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (keyController.text.trim().isNotEmpty) {
+                OpenAiService.setApiKey(keyController.text.trim());
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('API key set successfully!'),
+                    backgroundColor: Color(0xFF8A2BE2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
 
   /// Handles downloading the resume as PDF
-  void _downloadPdf() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Downloading PDF...'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
-    );
+  Future<void> _downloadPdf() async {
+    // Generate resume content from form data if AI generation failed or wasn't used
+    String resumeContent = _generatedResume ?? _collectResumeData();
+
+    if (resumeContent.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in some basic information first.'),
+          backgroundColor: Color(0xFF8A2BE2),
+        ),
+      );
+      return;
+    }
+    await _savePdf(resumeContent);
   }
 
   @override
@@ -328,13 +942,14 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                 index: _currentStep,
                 children: [
                   _buildBasicInformationStep(),
-                  _buildStep2(), // Placeholder for step 2
-                  _buildStep3(), // Placeholder for step 3
-                  _buildStep4(), // Placeholder for step 4
-                  _buildStep5(), // Placeholder for step 5
+                  _buildStep2(),
+                  _buildStep3(),
+                  _buildStep4(),
+                  _buildStyleStep(), // Step 5: Style & Tone
+                  _buildPreviewStep(), // Step 6: Preview & actions
                 ],
               ),
-              const SizedBox(height: 20),
+
               // Navigation buttons outside the frame
               _buildNavigationButtons(),
               const SizedBox(height: 40), // Add bottom padding for scroll
@@ -388,8 +1003,10 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   /// Builds the progress indicator
   Widget _buildProgressIndicator() => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 20),
+
     child: Column(
       children: [
+        const SizedBox(height: 16),
         // Progress circles and counter
         Row(
           children: [
@@ -404,7 +1021,7 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                     GestureDetector(
                       onTap: () => _goToStep(index),
                       child: Container(
-                        width: 32,
+                        width: 42,
                         height: 32,
                         decoration: BoxDecoration(
                           color: isActive
@@ -474,8 +1091,8 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   Widget _buildBasicInformationStep() => Center(
     child: Container(
       width: 340,
-      height: 508,
-      margin: const EdgeInsets.only(top: 40),
+      height: 540,
+
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -489,8 +1106,8 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
           const Text(
             'Basic Information',
             style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 20,
+              fontFamily: 'Inter',
+              fontSize: 22,
               fontWeight: FontWeight.bold,
               color: Color(0xFF000000),
             ),
@@ -507,29 +1124,66 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          // Image upload
+          // Image upload / preview
           Center(
             child: GestureDetector(
-              onTap: _handleImageUpload,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F5F5),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE1E1E1), width: 1),
-                ),
-                child: const Center(
-                  child: Text(
-                    'Upload Image',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF999999),
+              onTap: _isUploadingHeadshot ? null : _handleImageUpload,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F5F5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFE1E1E1),
+                        width: 1,
+                      ),
+                      image: _headshotLocalPath != null
+                          ? DecorationImage(
+                              image: FileImage(File(_headshotLocalPath!)),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
+                    child: _headshotLocalPath == null
+                        ? const Center(
+                            child: Text(
+                              'Upload Image',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                                color: Color(0xFF999999),
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
-                ),
+                  if (_isUploadingHeadshot)
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(
+                              Color(0xFF8A2BE2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -563,29 +1217,6 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   borderWidth: 1,
                   fillColor: Colors.white,
                   borderColor: const Color(0xFFE1E1E1),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  // Handle add phone number
-                },
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF5F5F5),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFFE1E1E1),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.add,
-                    color: Color(0xFF8A2BE2),
-                    size: 20,
-                  ),
                 ),
               ),
             ],
@@ -623,65 +1254,61 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
 
   /// Builds navigation buttons outside the frame
   Widget _buildNavigationButtons() {
-    // For the final step (Step 5), show different buttons
-    if (_currentStep == _totalSteps - 1) {
+    // Show Generate Resume on Style & Tone step (index 4)
+    if (_currentStep == 4) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          children: [
-            // Regenerate button
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _regenerateResume,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8A2BE2),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text(
-                  'Regenerate',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+        child: SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: _loading
+                ? null
+                : () async {
+                    setState(() => _loading = true);
+                    final resumeText = _collectResumeData();
+                    final jobDescription = 'Example job description here';
+                    final aiResume = await OpenAiService.generateResume(
+                      resumeText,
+                      jobDescription,
+                      _selectedStyle ?? 'Professional',
+                    );
+                    if (!mounted) return;
+                    setState(() => _loading = false);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AiResumePreviewScreen(
+                          resumeText: aiResume.isNotEmpty
+                              ? aiResume
+                              : resumeText,
+                          jobDescription: jobDescription,
+                          style: _selectedStyle ?? 'Professional',
+                        ),
+                      ),
+                    );
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8A2BE2),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              elevation: 0,
+            ),
+            child: Text(
+              _loading ? 'Generating...' : 'Generate Resume',
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
-            // Download PDF button
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _downloadPdf,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8A2BE2),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text(
-                  'Download Pdf',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }
+
+    // No preview step here anymore
 
     // For other steps, show the regular Next button
     return Padding(
@@ -722,7 +1349,7 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   Widget _buildStep2() => Center(
     child: Container(
       width: 336,
-      height: 496,
+      height: 515,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -808,23 +1435,21 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   children: [
                     _buildFieldLabel('Start Date'),
                     const SizedBox(height: 8),
-                    GestureDetector(
+                    CustomTextField(
+                      controller: _startDateController,
+                      hintText: 'Select start date',
+                      readOnly: true,
                       onTap: _selectStartDate,
-                      child: CustomTextField(
-                        controller: _startDateController,
-                        hintText: 'Select start date',
-                        readOnly: true,
-                        width: 148,
-                        height: 54,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        fillColor: Colors.white,
-                        borderColor: const Color(0xFFE1E1E1),
-                        suffixIcon: const Icon(
-                          Icons.calendar_today,
-                          color: Color(0xFF8A2BE2),
-                          size: 20,
-                        ),
+                      width: 148,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
                       ),
                     ),
                   ],
@@ -838,23 +1463,21 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   children: [
                     _buildFieldLabel('End Date'),
                     const SizedBox(height: 8),
-                    GestureDetector(
+                    CustomTextField(
+                      controller: _endDateController,
+                      hintText: 'Select end date',
+                      readOnly: true,
                       onTap: _selectEndDate,
-                      child: CustomTextField(
-                        controller: _endDateController,
-                        hintText: 'Select end date',
-                        readOnly: true,
-                        width: 148,
-                        height: 54,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        fillColor: Colors.white,
-                        borderColor: const Color(0xFFE1E1E1),
-                        suffixIcon: const Icon(
-                          Icons.calendar_today,
-                          color: Color(0xFF8A2BE2),
-                          size: 20,
-                        ),
+                      width: 148,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
                       ),
                     ),
                   ],
@@ -938,29 +1561,6 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  // Handle add degree
-                },
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF5F5F5),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFFE1E1E1),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.add,
-                    color: Color(0xFF8A2BE2),
-                    size: 20,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -988,23 +1588,21 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   children: [
                     _buildFieldLabel('Start Date'),
                     const SizedBox(height: 8),
-                    GestureDetector(
+                    CustomTextField(
+                      controller: _educationStartDateController,
+                      hintText: 'Select start date',
+                      readOnly: true,
                       onTap: _selectEducationStartDate,
-                      child: CustomTextField(
-                        controller: _educationStartDateController,
-                        hintText: 'Select start date',
-                        readOnly: true,
-                        width: 148,
-                        height: 54,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        fillColor: Colors.white,
-                        borderColor: const Color(0xFFE1E1E1),
-                        suffixIcon: const Icon(
-                          Icons.calendar_today,
-                          color: Color(0xFF8A2BE2),
-                          size: 20,
-                        ),
+                      width: 148,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
                       ),
                     ),
                   ],
@@ -1018,23 +1616,21 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                   children: [
                     _buildFieldLabel('End Date'),
                     const SizedBox(height: 8),
-                    GestureDetector(
+                    CustomTextField(
+                      controller: _educationEndDateController,
+                      hintText: 'Select end date',
+                      readOnly: true,
                       onTap: _selectEducationEndDate,
-                      child: CustomTextField(
-                        controller: _educationEndDateController,
-                        hintText: 'Select end date',
-                        readOnly: true,
-                        width: 148,
-                        height: 54,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        fillColor: Colors.white,
-                        borderColor: const Color(0xFFE1E1E1),
-                        suffixIcon: const Icon(
-                          Icons.calendar_today,
-                          color: Color(0xFF8A2BE2),
-                          size: 20,
-                        ),
+                      width: 148,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
                       ),
                     ),
                   ],
@@ -1124,12 +1720,12 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
           const SizedBox(height: 20),
           // Upload Certifications section
           _buildFieldLabel('Upload Certifications'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 15),
           GestureDetector(
             onTap: _uploadCertifications,
             child: Container(
               width: double.infinity,
-              height: 120,
+              height: 160,
               decoration: BoxDecoration(
                 color: const Color(0xFFF5F5F5),
                 borderRadius: BorderRadius.circular(10),
@@ -1138,15 +1734,27 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
-                    Icons.upload_file,
-                    color: Color(0xFF000000),
-                    size: 32,
-                  ),
+                  if (_isUploadingCerts)
+                    const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Color(0xFF8A2BE2)),
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.upload_file,
+                      color: Color(0xFF000000),
+                      size: 32,
+                    ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Upload Certifications',
-                    style: TextStyle(
+                  Text(
+                    _isUploadingCerts
+                        ? 'Uploading...'
+                        : 'Upload Certifications',
+                    style: const TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -1154,9 +1762,11 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Microsoft Word or PDF only (5MB)',
-                    style: TextStyle(
+                  Text(
+                    _certificationNames.isEmpty
+                        ? 'Microsoft Word or PDF only (5MB)'
+                        : '${_certificationNames.length} file(s) selected',
+                    style: const TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 12,
                       color: Color(0xFF666666),
@@ -1171,11 +1781,11 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
     ),
   );
 
-  /// Builds the Resume Review step (Step 5)
-  Widget _buildStep5() => Center(
+  /// Builds Step 5: Style & Tone selector
+  Widget _buildStyleStep() => Center(
     child: Container(
       width: 336,
-      height: 600, // Increased height to accommodate full resume
+      height: 220,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1186,15 +1796,116 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with name and action icons
+            // Style & Tone header
+            const Text(
+              'Style & Tone',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF000000),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Decide your professional style.',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 14,
+                color: Color(0xFF666666),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Select Style',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE1E1E1), width: 1),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedStyle,
+                  hint: const Text(
+                    'Select your style here',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14),
+                  ),
+                  items: _styleOptions
+                      .map(
+                        (s) => DropdownMenuItem<String>(
+                          value: s,
+                          child: Text(
+                            s,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (val) => setState(() => _selectedStyle = val),
+                  isExpanded: true,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  /// Builds Step 6: Preview & actions
+  Widget _buildPreviewStep() => Center(
+    child: Container(
+      width: 336,
+      height: 600,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF8A2BE2), width: 1),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with dynamic name and actions + optional headshot
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Expanded(
+                if (_headshotLocalPath != null) ...[
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: FileImage(File(_headshotLocalPath!)),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
                   child: Text(
-                    'JOHN DOE',
-                    style: TextStyle(
+                    _fullNameController.text.isNotEmpty
+                        ? _fullNameController.text
+                        : 'Your Name',
+                    style: const TextStyle(
                       fontFamily: 'Poppins',
-                      fontSize: 24,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF8A2BE2),
                     ),
@@ -1220,79 +1931,82 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            // Contact Information
+            // Contact and links from Step 1
             Row(
               children: [
-                const Icon(Icons.phone, color: Color(0xFF000000), size: 16),
+                const Icon(Icons.phone, size: 16, color: Color(0xFF000000)),
                 const SizedBox(width: 8),
-                const Text(
-                  '(123) 456-7890',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    color: Color(0xFF000000),
-                  ),
+                Text(
+                  _phoneNumberController.text.isNotEmpty
+                      ? _phoneNumberController.text
+                      : 'Add phone in Step 1',
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
                 ),
                 const SizedBox(width: 16),
-                const Icon(Icons.link, color: Color(0xFF000000), size: 16),
+                const Icon(Icons.link, size: 16, color: Color(0xFF000000)),
                 const SizedBox(width: 8),
-                const Text(
-                  'linkedin.com/in/johndoe',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    color: Color(0xFF000000),
+                Expanded(
+                  child: Text(
+                    _linksController.text.isNotEmpty
+                        ? _linksController.text
+                        : 'Add links in Step 1',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            // Professional Summary
-            _buildResumeSection(
-              'Professional Summary',
-              'Results-driven marketing professional with 5+ years of experience creating high-impact campaigns and driving measurable growth. Skilled in digital strategy, brand positioning, and data-driven decision-making.',
-            ),
             const SizedBox(height: 16),
-            // Work Experience
-            _buildResumeSection(
-              'Work Experience',
-              '• Increased social media engagement by 65% through targeted content strategy.\n'
-                  '• Managed \$500K annual ad budget, optimizing ROI by 28%.\n'
-                  '• Led a team of 5 marketers, delivering 12+ successful product launches.\n'
-                  '• Implemented SEO strategies that improved organic traffic by 40%.\n'
-                  '• Designed and executed email campaigns with a 22% conversion rate.',
-            ),
-            const SizedBox(height: 16),
-            // Education
-            _buildResumeSection(
-              'Education',
-              'B.A. in Marketing - New York University (2012 - 2016)',
-            ),
-            const SizedBox(height: 16),
-            // Skills
-            _buildResumeSection(
-              'Skills',
-              'Digital Marketing | SEO & SEM | Google Analytics | Campaign Management | Leadership',
-            ),
-            const SizedBox(height: 16),
-            // Achievements
-            _buildResumeSection(
-              'Achievements',
-              '• Winner, 2021 National Marketing Innovation Award',
-            ),
-            const SizedBox(height: 20),
-            // Page indicator
-            Align(
-              alignment: Alignment.centerRight,
+            // AI generated resume text preview
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9F7FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE1D9FF)),
+              ),
               child: Text(
-                'Pg 1 of 1',
-                style: TextStyle(
+                (_generatedResume != null &&
+                        _generatedResume!.trim().isNotEmpty)
+                    ? _generatedResume!
+                    : 'Your AI-generated resume will appear here after you tap Regenerate.',
+                style: const TextStyle(
                   fontFamily: 'Poppins',
-                  fontSize: 12,
-                  color: const Color(0xFF8A2BE2),
+                  fontSize: 13,
+                  height: 1.4,
+                  color: Color(0xFF000000),
                 ),
               ),
             ),
+            if (_jobTitleController.text.isNotEmpty ||
+                _companyNameController.text.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildResumeSection(
+                'Work Experience',
+                '${_jobTitleController.text} at ${_companyNameController.text}\nFrom ${_startDateController.text} to ${_endDateController.text}\nResponsibilities: ${_responsibilitiesController.text}',
+              ),
+            ],
+            if (_degreeTitleController.text.isNotEmpty ||
+                _instituteNameController.text.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildResumeSection(
+                'Education',
+                '${_degreeTitleController.text} at ${_instituteNameController.text}\nFrom ${_educationStartDateController.text} to ${_educationEndDateController.text}',
+              ),
+            ],
+            if (_selectedSkills.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildResumeSection('Skills', _selectedSkills.join(' | ')),
+            ],
+            if (_certificationNames.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildResumeSection(
+                'Certifications',
+                '• ' + _certificationNames.join('\n• '),
+              ),
+            ],
+            const SizedBox(height: 8),
           ],
         ),
       ),

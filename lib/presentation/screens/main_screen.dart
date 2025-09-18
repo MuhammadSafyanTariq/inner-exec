@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:innerexec/presentation/widgets/common/custom_bottom_nav_bar.dart';
 import 'package:innerexec/presentation/screens/dashboard_screen.dart';
 import 'package:innerexec/presentation/screens/job/jobs_screen.dart';
-import 'package:innerexec/presentation/screens/resume/resume_audit_screen.dart';
+import 'package:innerexec/presentation/screens/assistant_screen.dart';
 import 'package:innerexec/presentation/screens/add_ons_screen.dart';
 import 'package:innerexec/presentation/screens/profile_screen.dart';
 
@@ -22,7 +22,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const JobsScreen(),
-    const ResumeAuditScreen(),
+    const AssistantScreen(),
     const AddOnsScreen(),
     const ProfileScreen(),
   ];
