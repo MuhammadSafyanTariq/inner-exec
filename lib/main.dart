@@ -8,11 +8,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:innerexec/presentation/screens/main_screen.dart';
 import 'package:innerexec/presentation/screens/profile_setup_screen.dart';
+import 'package:innerexec/core/services/openai_service.dart';
 
 /// Main entry point of the InnerExec application
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  
+  // Initialize OpenAI service
+  OpenAiService.init();
+  
   runApp(const InnerExecApp());
 }
 

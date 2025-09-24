@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:innerexec/presentation/widgets/custom_text_field.dart';
 import 'package:innerexec/core/services/openai_service.dart';
-import 'package:innerexec/presentation/screens/resume/ai_resume_preview_screen.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart' as pdfc;
 import 'package:printing/printing.dart';
@@ -11,6 +10,34 @@ import 'package:innerexec/core/services/cloudinary_service.dart';
 import 'package:file_picker/file_picker.dart' as fp;
 
 /// AI Resume & Cover Letter screen with multi-step form using IndexedStack
+class WorkExperienceEntry {
+  final TextEditingController jobTitle = TextEditingController();
+  final TextEditingController company = TextEditingController();
+  final TextEditingController startDate = TextEditingController();
+  final TextEditingController endDate = TextEditingController();
+  final TextEditingController responsibilities = TextEditingController();
+  void dispose() {
+    jobTitle.dispose();
+    company.dispose();
+    startDate.dispose();
+    endDate.dispose();
+    responsibilities.dispose();
+  }
+}
+
+class EducationEntry {
+  final TextEditingController degree = TextEditingController();
+  final TextEditingController institute = TextEditingController();
+  final TextEditingController startDate = TextEditingController();
+  final TextEditingController endDate = TextEditingController();
+  void dispose() {
+    degree.dispose();
+    institute.dispose();
+    startDate.dispose();
+    endDate.dispose();
+  }
+}
+
 class AiResumeScreen extends StatefulWidget {
   /// Creates a new AI resume screen
   const AiResumeScreen({super.key});
@@ -21,7 +48,7 @@ class AiResumeScreen extends StatefulWidget {
 
 class _AiResumeScreenState extends State<AiResumeScreen> {
   int _currentStep = 0;
-  final int _totalSteps = 5;
+  final int _totalSteps = 6;
 
   // Form controllers for step 1 (Basic Information)
   final _fullNameController = TextEditingController();
@@ -34,12 +61,16 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   final _startDateController = TextEditingController();
   final _endDateController = TextEditingController();
   final _responsibilitiesController = TextEditingController();
+  // Multiple work experiences
+  final List<WorkExperienceEntry> _workExperiences = [WorkExperienceEntry()];
 
   // Form controllers for step 3 (Education)
   final _degreeTitleController = TextEditingController();
   final _instituteNameController = TextEditingController();
   final _educationStartDateController = TextEditingController();
   final _educationEndDateController = TextEditingController();
+  // Multiple education entries
+  final List<EducationEntry> _educations = [EducationEntry()];
 
   // Variables for step 4 (Skills & Achievements)
   final List<String> _selectedSkills = [];
@@ -50,6 +81,9 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   String? _headshotLocalPath;
   String? _headshotUrl; // Stored only for resume generation/PDF
   bool _isUploadingHeadshot = false;
+
+  // New: store structured AI JSON
+  Map<String, dynamic>? _aiJson;
 
   // Certifications upload state
   bool _isUploadingCerts = false;
@@ -76,10 +110,16 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
     _startDateController.dispose();
     _endDateController.dispose();
     _responsibilitiesController.dispose();
+    for (final e in _workExperiences) {
+      e.dispose();
+    }
     _degreeTitleController.dispose();
     _instituteNameController.dispose();
     _educationStartDateController.dispose();
     _educationEndDateController.dispose();
+    for (final e in _educations) {
+      e.dispose();
+    }
     super.dispose();
   }
 
@@ -90,23 +130,50 @@ class _AiResumeScreenState extends State<AiResumeScreen> {
   }
 
   String _collectResumeData() {
-    return """
-Name: ${_fullNameController.text}
-Phone: ${_phoneNumberController.text}
-Links: ${_linksController.text}
-
-Work Experience:
-${_jobTitleController.text} at ${_companyNameController.text}
-From ${_startDateController.text} to ${_endDateController.text}
-Responsibilities: ${_responsibilitiesController.text}
-
-Education:
-${_degreeTitleController.text} at ${_instituteNameController.text}
-From ${_educationStartDateController.text} to ${_educationEndDateController.text}
-
-Skills: ${_selectedSkills.join(", ")}
-Achievements: 
-""";
+    final sb = StringBuffer();
+    sb.writeln('Name: ${_fullNameController.text}');
+    sb.writeln('Phone: ${_phoneNumberController.text}');
+    sb.writeln('Links: ${_linksController.text}\n');
+    sb.writeln('Work Experience:');
+    // Primary entry from existing fields
+    sb.writeln('${_jobTitleController.text} at ${_companyNameController.text}');
+    sb.writeln(
+      'From ${_startDateController.text} to ${_endDateController.text}',
+    );
+    sb.writeln('Responsibilities: ${_responsibilitiesController.text}\n');
+    // Additional entries
+    for (final e in _workExperiences) {
+      if (e.jobTitle.text.isEmpty &&
+          e.company.text.isEmpty &&
+          e.startDate.text.isEmpty &&
+          e.endDate.text.isEmpty &&
+          e.responsibilities.text.isEmpty) {
+        continue;
+      }
+      sb.writeln('${e.jobTitle.text} at ${e.company.text}');
+      sb.writeln('From ${e.startDate.text} to ${e.endDate.text}');
+      sb.writeln('Responsibilities: ${e.responsibilities.text}\n');
+    }
+    sb.writeln('Education:');
+    sb.writeln(
+      '${_degreeTitleController.text} at ${_instituteNameController.text}',
+    );
+    sb.writeln(
+      'From ${_educationStartDateController.text} to ${_educationEndDateController.text}\n',
+    );
+    for (final ed in _educations) {
+      if (ed.degree.text.isEmpty &&
+          ed.institute.text.isEmpty &&
+          ed.startDate.text.isEmpty &&
+          ed.endDate.text.isEmpty) {
+        continue;
+      }
+      sb.writeln('${ed.degree.text} at ${ed.institute.text}');
+      sb.writeln('From ${ed.startDate.text} to ${ed.endDate.text}\n');
+    }
+    sb.writeln('Skills: ${_selectedSkills.join(", ")}');
+    sb.writeln('Achievements:');
+    return sb.toString();
   }
 
   Future<void> _savePdf(String text) async {
@@ -120,10 +187,7 @@ Achievements:
       color: purple,
     );
     final bodyStyle = const pw.TextStyle(fontSize: 10, height: 1.35);
-    final labelStyle = pw.TextStyle(
-      fontSize: 10,
-      color: pdfc.PdfColors.grey700,
-    );
+    // Header subtitle style removed; contact is shown in header lines
 
     // Try to load headshot image for PDF if available
     pw.ImageProvider? headshotImage;
@@ -151,20 +215,22 @@ Achievements:
     final String eduStart = _educationStartDateController.text;
     final String eduEnd = _educationEndDateController.text;
 
-    // About text (from AI or fallback)
+    // Prefer parsed JSON fields if available, else extract sections from text
+    final _AiParsedResume ai = _aiJson != null && _aiJson!.isNotEmpty
+        ? _extractFromJson(_aiJson!)
+        : _extractAiSections(text);
+    // Summary/About from AI or fallback snippet (sanitized)
     String aboutMe = '';
-    if (text.trim().isNotEmpty) {
-      aboutMe = text
-          .trim()
-          .split('\n')
-          .firstWhere(
-            (line) => line.trim().isNotEmpty,
-            orElse: () => text.trim(),
-          );
-      if (aboutMe.length > 350) {
-        aboutMe = aboutMe.substring(0, 350) + '...';
-      }
+    if (ai.summary.isNotEmpty) {
+      aboutMe = sanitizeText(_sanitizeInline(ai.summary));
+    } else if (text.trim().isNotEmpty) {
+      aboutMe = sanitizeText(_sanitizeInline(text.trim()));
     }
+    if (aboutMe.length > 400) {
+      aboutMe = aboutMe.substring(0, 400) + '...';
+    }
+    // Merge and sanitize skills from AI and manual selection
+    final List<String> mergedSkills = _mergeSkills(_selectedSkills, ai.skills);
 
     pdf.addPage(
       pw.MultiPage(
@@ -180,14 +246,14 @@ Achievements:
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // Header
+                // Header - image left, name + contacts right
                 pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
                   children: [
                     if (headshotImage != null)
                       pw.Container(
-                        width: 64,
-                        height: 64,
+                        width: 60,
+                        height: 60,
                         decoration: pw.BoxDecoration(
                           shape: pw.BoxShape.circle,
                           image: pw.DecorationImage(
@@ -196,7 +262,7 @@ Achievements:
                           ),
                         ),
                       ),
-                    if (headshotImage != null) pw.SizedBox(width: 14),
+                    if (headshotImage != null) pw.SizedBox(width: 12),
                     pw.Expanded(
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -204,20 +270,65 @@ Achievements:
                           pw.Text(
                             fullName.toUpperCase(),
                             style: pw.TextStyle(
-                              fontSize: 24,
+                              fontSize: 20,
                               fontWeight: pw.FontWeight.bold,
                               color: purple,
                             ),
                           ),
-                          if (_selectedStyle != null)
-                            pw.Text(_selectedStyle!, style: labelStyle),
+                          pw.SizedBox(height: 4),
+                          () {
+                            final String? email = _extractEmail(links);
+                            final String? linkedin = _extractLinkedIn(links);
+                            final String? website = _extractWebsite(links);
+                            final String topLine = [
+                              if (phone.isNotEmpty)
+                                'Phone: ' + sanitizeText(phone),
+                              if (email != null && email.isNotEmpty)
+                                'Email: ' + sanitizeText(email),
+                            ].join('  |  ');
+                            final String bottomLine = [
+                              if (linkedin != null && linkedin.isNotEmpty)
+                                'LinkedIn: ' + sanitizeText(linkedin),
+                              if (website != null && website.isNotEmpty)
+                                'Website: ' + sanitizeText(website),
+                            ].join('  |  ');
+                            return pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                if (topLine.isNotEmpty)
+                                  pw.Text(
+                                    topLine,
+                                    style: pw.TextStyle(
+                                      fontSize: 12,
+                                      color: pdfc.PdfColors.grey700,
+                                    ),
+                                  ),
+                                if (bottomLine.isNotEmpty)
+                                  pw.Text(
+                                    bottomLine,
+                                    style: pw.TextStyle(
+                                      fontSize: 12,
+                                      color: pdfc.PdfColors.grey700,
+                                    ),
+                                  ),
+                                if (links.trim().isNotEmpty)
+                                  pw.Text(
+                                    sanitizeText(links),
+                                    style: pw.TextStyle(
+                                      fontSize: 11,
+                                      color: pdfc.PdfColors.grey700,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          }(),
                         ],
                       ),
                     ),
                   ],
                 ),
-                pw.SizedBox(height: 10),
-                pw.Container(height: 2, color: purple),
+                pw.SizedBox(height: 8),
+                pw.Container(height: 1.5, color: purple),
                 pw.SizedBox(height: 10),
 
                 // Two columns
@@ -231,6 +342,7 @@ Achievements:
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text('ABOUT ME', style: sectionTitle),
+                          pw.Container(height: 1, color: purple),
                           pw.SizedBox(height: 6),
                           pw.Text(
                             aboutMe.isNotEmpty ? aboutMe : ' ',
@@ -239,27 +351,21 @@ Achievements:
                           pw.SizedBox(height: 14),
 
                           pw.Text('SKILLS', style: sectionTitle),
+                          pw.Container(height: 1, color: purple),
                           pw.SizedBox(height: 6),
-                          if (_selectedSkills.isNotEmpty)
-                            pw.Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
+                          if (mergedSkills.isNotEmpty)
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
                               children: [
-                                for (final s in _selectedSkills)
-                                  pw.Container(
-                                    padding: const pw.EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
+                                for (final s in mergedSkills)
+                                  pw.Padding(
+                                    padding: const pw.EdgeInsets.only(
+                                      bottom: 4,
                                     ),
-                                    decoration: pw.BoxDecoration(
-                                      color: pdfc.PdfColor.fromInt(0xFFF3EAFF),
-                                      borderRadius: pw.BorderRadius.circular(6),
-                                      border: pw.Border.all(
-                                        color: purple,
-                                        width: 0.7,
-                                      ),
+                                    child: pw.Text(
+                                      '- ' + sanitizeText(s),
+                                      style: bodyStyle,
                                     ),
-                                    child: pw.Text(s, style: bodyStyle),
                                   ),
                               ],
                             )
@@ -267,40 +373,49 @@ Achievements:
                             pw.Text(' ', style: bodyStyle),
                           pw.SizedBox(height: 14),
 
-                          if (_certificationUrls.isNotEmpty) ...[
+                          if (_certificationUrls.isNotEmpty ||
+                              ai.certifications.isNotEmpty) ...[
                             pw.Text('CERTIFICATIONS', style: sectionTitle),
                             pw.SizedBox(height: 6),
                             pw.Column(
                               crossAxisAlignment: pw.CrossAxisAlignment.start,
                               children: [
+                                // From manual uploads as clickable links (sanitized labels)
                                 for (
                                   int i = 0;
                                   i < _certificationUrls.length;
                                   i++
                                 )
+                                  pw.UrlLink(
+                                    destination: _certificationUrls[i],
+                                    child: pw.Padding(
+                                      padding: const pw.EdgeInsets.only(
+                                        bottom: 6,
+                                      ),
+                                      child: pw.Text(
+                                        '- ' +
+                                            sanitizeText(
+                                              (_certificationNames.length > i
+                                                  ? _certificationNames[i]
+                                                  : _certName(
+                                                      _certificationUrls[i],
+                                                    )),
+                                            ),
+                                        style: bodyStyle.copyWith(
+                                          color: purple,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                // From AI
+                                for (final c in ai.certifications)
                                   pw.Padding(
                                     padding: const pw.EdgeInsets.only(
                                       bottom: 6,
                                     ),
-                                    child: pw.Row(
-                                      crossAxisAlignment:
-                                          pw.CrossAxisAlignment.start,
-                                      children: [
-                                        pw.Text('•  '),
-                                        pw.Expanded(
-                                          child: pw.UrlLink(
-                                            destination: _certificationUrls[i],
-                                            child: pw.Text(
-                                              _certificationNames.length > i
-                                                  ? _certificationNames[i]
-                                                  : _certificationUrls[i],
-                                              style: bodyStyle.copyWith(
-                                                color: pdfc.PdfColors.blue,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                                    child: pw.Text(
+                                      '- ' + sanitizeText(c),
+                                      style: bodyStyle,
                                     ),
                                   ),
                               ],
@@ -310,7 +425,11 @@ Achievements:
                       ),
                     ),
 
-                    pw.SizedBox(width: 16),
+                    // Vertical divider between columns
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 12),
+                      child: pw.Container(width: 1, height: 380, color: purple),
+                    ),
 
                     // Right column
                     pw.Expanded(
@@ -319,66 +438,149 @@ Achievements:
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text('EDUCATION', style: sectionTitle),
+                          pw.Divider(color: purple, thickness: 0.5),
                           pw.SizedBox(height: 6),
-                          pw.Text(
-                            [
-                              if (degree.isNotEmpty) degree,
-                              if (institute.isNotEmpty) institute,
-                              if (eduStart.isNotEmpty || eduEnd.isNotEmpty)
-                                '($eduStart – $eduEnd)',
-                            ].where((e) => e.trim().isNotEmpty).join(' \n '),
-                            style: bodyStyle,
-                          ),
+                          if (_aiJson != null && _aiJson!.isNotEmpty)
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                for (final e
+                                    in ((_aiJson!['education'] as List?) ?? []))
+                                  if (e is Map<String, dynamic>)
+                                    pw.Column(
+                                      crossAxisAlignment:
+                                          pw.CrossAxisAlignment.start,
+                                      children: [
+                                        pw.Text(
+                                          sanitizeText(_cleanText(e['degree'])),
+                                          style: pw.TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: pw.FontWeight.bold,
+                                          ),
+                                        ),
+                                        pw.Text(
+                                          sanitizeText(
+                                            '${_cleanText(e['institute'])} — ${_cleanText(e['year'])}',
+                                          ),
+                                          style: const pw.TextStyle(
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        pw.SizedBox(height: 6),
+                                      ],
+                                    ),
+                              ],
+                            )
+                          else if (ai.education.isNotEmpty)
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                for (final l in _linesFrom(ai.education))
+                                  pw.Text(
+                                    '- ' + sanitizeText(l),
+                                    style: bodyStyle,
+                                  ),
+                              ],
+                            )
+                          else
+                            pw.Text(
+                              [
+                                if (degree.isNotEmpty) degree,
+                                if (institute.isNotEmpty) institute,
+                                if (eduStart.isNotEmpty || eduEnd.isNotEmpty)
+                                  '($eduStart – $eduEnd)',
+                              ].where((e) => e.trim().isNotEmpty).join(' \n '),
+                              style: bodyStyle,
+                            ),
                           pw.SizedBox(height: 14),
 
                           pw.Text('EXPERIENCE', style: sectionTitle),
+                          pw.Divider(color: purple, thickness: 0.5),
                           pw.SizedBox(height: 6),
-                          pw.Text(
-                            [
-                              if (jobTitle.isNotEmpty && companyName.isNotEmpty)
-                                '$jobTitle – $companyName',
-                              if (startDate.isNotEmpty || endDate.isNotEmpty)
-                                '($startDate – $endDate)',
-                            ].where((e) => e.trim().isNotEmpty).join(' '),
-                            style: bodyStyle.copyWith(
-                              fontWeight: pw.FontWeight.bold,
+                          if (_aiJson != null && _aiJson!.isNotEmpty)
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                for (final e
+                                    in ((_aiJson!['experience'] as List?) ??
+                                        []))
+                                  if (e is Map<String, dynamic>)
+                                    pw.Column(
+                                      crossAxisAlignment:
+                                          pw.CrossAxisAlignment.start,
+                                      children: [
+                                        pw.Text(
+                                          sanitizeText(
+                                            '${_cleanText(e['title'])} — ${_cleanText(e['company'])}',
+                                          ),
+                                          style: pw.TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: pw.FontWeight.bold,
+                                          ),
+                                        ),
+                                        pw.Text(
+                                          sanitizeText(_cleanText(e['date'])),
+                                          style: pw.TextStyle(
+                                            fontSize: 12,
+                                            color: pdfc.PdfColors.grey700,
+                                          ),
+                                        ),
+                                        pw.SizedBox(height: 4),
+                                        pw.Column(
+                                          crossAxisAlignment:
+                                              pw.CrossAxisAlignment.start,
+                                          children: [
+                                            for (final r
+                                                in ((e['responsibilities']
+                                                        as List?) ??
+                                                    []))
+                                              pw.Padding(
+                                                padding:
+                                                    const pw.EdgeInsets.only(
+                                                      bottom: 2,
+                                                    ),
+                                                child: pw.Text(
+                                                  '- ' +
+                                                      sanitizeText(
+                                                        _cleanText(r),
+                                                      ),
+                                                  style: const pw.TextStyle(
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        pw.SizedBox(height: 10),
+                                      ],
+                                    ),
+                              ],
+                            )
+                          else ...[
+                            pw.Text(
+                              [
+                                if (jobTitle.isNotEmpty &&
+                                    companyName.isNotEmpty)
+                                  '$jobTitle – $companyName',
+                                if (startDate.isNotEmpty || endDate.isNotEmpty)
+                                  '($startDate – $endDate)',
+                              ].where((e) => e.trim().isNotEmpty).join(' '),
+                              style: bodyStyle.copyWith(
+                                fontWeight: pw.FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          if (responsibilities.trim().isNotEmpty) ...[
-                            pw.SizedBox(height: 4),
-                            pw.Bullet(
-                              text: responsibilities,
-                              style: bodyStyle,
-                              bulletColor: purple,
-                            ),
+                            if (responsibilities.trim().isNotEmpty) ...[
+                              pw.SizedBox(height: 4),
+                              pw.Bullet(
+                                text: responsibilities,
+                                style: bodyStyle,
+                                bulletColor: purple,
+                              ),
+                            ],
                           ],
                           pw.SizedBox(height: 14),
 
-                          pw.Text('CONTACT', style: sectionTitle),
-                          pw.SizedBox(height: 6),
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              if (phone.isNotEmpty)
-                                pw.Row(
-                                  children: [
-                                    pw.Text('Phone: ', style: labelStyle),
-                                    pw.Text(phone, style: bodyStyle),
-                                  ],
-                                ),
-                              if (links.isNotEmpty) ...[
-                                pw.SizedBox(height: 4),
-                                pw.Row(
-                                  children: [
-                                    pw.Text('Links: ', style: labelStyle),
-                                    pw.Expanded(
-                                      child: pw.Text(links, style: bodyStyle),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
+                          // Contact section removed; it's rendered in the header now
                         ],
                       ),
                     ),
@@ -392,6 +594,37 @@ Achievements:
     );
 
     await Printing.sharePdf(bytes: await pdf.save(), filename: 'AI_Resume.pdf');
+  }
+
+  // Saves a simple PDF containing the full AI-generated resume text
+  Future<void> _savePlainTextPdf(String text) async {
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.MultiPage(
+        build: (context) => [
+          pw.Text(text, style: const pw.TextStyle(fontSize: 12, height: 1.35)),
+        ],
+      ),
+    );
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'AI_Resume.pdf');
+  }
+
+  // Utility to stringify JSON for preview fallback
+  String _stringFromJson(Map<String, dynamic> json) {
+    final summary = (json['summary'] ?? '').toString();
+    final List skills = (json['skills'] as List?) ?? [];
+    final List certs = (json['certifications'] as List?) ?? [];
+    final List edu = (json['education'] as List?) ?? [];
+    final List exp = (json['experience'] as List?) ?? [];
+    final sb = StringBuffer();
+    if (summary.isNotEmpty) sb.writeln(summary);
+    if (skills.isNotEmpty) sb.writeln('\nSkills: ' + skills.join(', '));
+    if (certs.isNotEmpty) sb.writeln('\nCertifications: ' + certs.join(', '));
+    if (edu.isNotEmpty)
+      sb.writeln('\nEducation: ' + edu.map((e) => e.toString()).join(' | '));
+    if (exp.isNotEmpty)
+      sb.writeln('\nExperience: ' + exp.map((e) => e.toString()).join(' | '));
+    return sb.toString();
   }
 
   /// Navigates back to the previous screen
@@ -513,12 +746,9 @@ Achievements:
 
   /// Handles adding another job
   void _handleAddJob() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Add multiple jobs feature coming soon!'),
-        backgroundColor: Color(0xFF8A2BE2),
-      ),
-    );
+    setState(() {
+      _workExperiences.add(WorkExperienceEntry());
+    });
   }
 
   /// Shows skills selection dialog
@@ -902,8 +1132,15 @@ Achievements:
 
   /// Handles downloading the resume as PDF
   Future<void> _downloadPdf() async {
-    // Generate resume content from form data if AI generation failed or wasn't used
-    String resumeContent = _generatedResume ?? _collectResumeData();
+    // Prefer structured JSON if we have it; else use text or fallback to form
+    String resumeContent = _collectResumeData();
+    if (_aiJson != null && _aiJson!.isNotEmpty) {
+      // Build content from structured JSON inside _savePdf directly
+      resumeContent = _stringFromJson(_aiJson!);
+    } else if (_generatedResume != null &&
+        _generatedResume!.trim().isNotEmpty) {
+      resumeContent = _generatedResume!;
+    }
 
     if (resumeContent.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -959,6 +1196,143 @@ Achievements:
       ),
     ),
   );
+
+  Widget _buildExperienceCard({
+    required String title,
+    required TextEditingController jobTitleController,
+    required TextEditingController companyController,
+    required TextEditingController startController,
+    required TextEditingController endController,
+    required TextEditingController respController,
+    required VoidCallback onPickStart,
+    required VoidCallback onPickEnd,
+    bool showDelete = false,
+    VoidCallback? onDelete,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF8A2BE2), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildFieldLabel('Job Title'),
+          const SizedBox(height: 8),
+          CustomTextField(
+            controller: jobTitleController,
+            hintText: 'Enter your title here',
+            height: 54,
+            borderRadius: 8,
+            borderWidth: 1,
+            fillColor: Colors.white,
+            borderColor: const Color(0xFFE1E1E1),
+          ),
+          const SizedBox(height: 12),
+          _buildFieldLabel('Company Name'),
+          const SizedBox(height: 8),
+          CustomTextField(
+            controller: companyController,
+            hintText: 'Enter company name here',
+            height: 54,
+            borderRadius: 8,
+            borderWidth: 1,
+            fillColor: Colors.white,
+            borderColor: const Color(0xFFE1E1E1),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('Start Date'),
+                    const SizedBox(height: 8),
+                    CustomTextField(
+                      controller: startController,
+                      hintText: 'Select start date',
+                      readOnly: true,
+                      onTap: onPickStart,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('End Date'),
+                    const SizedBox(height: 8),
+                    CustomTextField(
+                      controller: endController,
+                      hintText: 'Select end date',
+                      readOnly: true,
+                      onTap: onPickEnd,
+                      height: 54,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      fillColor: Colors.white,
+                      borderColor: const Color(0xFFE1E1E1),
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: Color(0xFF8A2BE2),
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildFieldLabel('Responsibilities'),
+          const SizedBox(height: 8),
+          CustomTextField(
+            controller: respController,
+            hintText: 'Enter your responsibilities here',
+            maxLines: 2,
+            height: 60,
+            borderRadius: 8,
+            borderWidth: 1,
+            fillColor: Colors.white,
+            borderColor: const Color(0xFFE1E1E1),
+          ),
+          if (showDelete)
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: onDelete,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   /// Builds the header with back button and title
   Widget _buildHeader() => Padding(
@@ -1267,25 +1641,34 @@ Achievements:
                 : () async {
                     setState(() => _loading = true);
                     final resumeText = _collectResumeData();
-                    final jobDescription = 'Example job description here';
-                    final aiResume = await OpenAiService.generateResume(
-                      resumeText,
-                      jobDescription,
-                      _selectedStyle ?? 'Professional',
-                    );
+                    final jobDescription = '';
+                    // Try structured JSON first
+                    final Map<String, dynamic> json =
+                        await OpenAiService.generateStructuredResume(
+                          resumeText,
+                          jobDescription,
+                          _selectedStyle ?? 'Professional',
+                        );
+                    String aiText = '';
+                    if (json.isNotEmpty) {
+                      _aiJson = json;
+                      aiText = _stringFromJson(json);
+                    } else {
+                      // Fallback to legacy text generation
+                      aiText = await OpenAiService.generateResume(
+                        resumeText,
+                        jobDescription,
+                        _selectedStyle ?? 'Professional',
+                      );
+                    }
                     if (!mounted) return;
-                    setState(() => _loading = false);
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AiResumePreviewScreen(
-                          resumeText: aiResume.isNotEmpty
-                              ? aiResume
-                              : resumeText,
-                          jobDescription: jobDescription,
-                          style: _selectedStyle ?? 'Professional',
-                        ),
-                      ),
-                    );
+                    setState(() {
+                      _loading = false;
+                      _generatedResume = aiText.isNotEmpty
+                          ? aiText
+                          : resumeText;
+                      _currentStep = 5; // Show visual preview step
+                    });
                   },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8A2BE2),
@@ -1310,7 +1693,7 @@ Achievements:
 
     // No preview step here anymore
 
-    // For other steps, show the regular Next button
+    // For other steps, show the regular Next/Done button
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: SizedBox(
@@ -1322,6 +1705,8 @@ Achievements:
               setState(() {
                 _currentStep++;
               });
+            } else {
+              Navigator.of(context).pop(); // Done → back to assistant
             }
           },
           style: ElevatedButton.styleFrom(
@@ -1332,9 +1717,9 @@ Achievements:
             ),
             elevation: 0,
           ),
-          child: const Text(
-            'Next',
-            style: TextStyle(
+          child: Text(
+            _currentStep == _totalSteps - 1 ? 'Done' : 'Next',
+            style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -1381,124 +1766,73 @@ Achievements:
             ),
           ),
           const SizedBox(height: 20),
-          // Job Title field with add button
-          Row(
-            children: [
-              Expanded(child: _buildFieldLabel('Job Title')),
-              GestureDetector(
-                onTap: _handleAddJob,
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF8A2BE2),
-                    shape: BoxShape.circle,
+          // Multiple experience blocks
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // Primary block (existing controllers)
+                  _buildExperienceCard(
+                    title: 'Experience 1',
+                    jobTitleController: _jobTitleController,
+                    companyController: _companyNameController,
+                    startController: _startDateController,
+                    endController: _endDateController,
+                    respController: _responsibilitiesController,
+                    onPickStart: _selectStartDate,
+                    onPickEnd: _selectEndDate,
+                    showDelete: false,
                   ),
-                  child: const Icon(Icons.add, color: Colors.white, size: 16),
-                ),
+                  // Extra blocks
+                  ..._workExperiences.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final exp = entry.value;
+                    return _buildExperienceCard(
+                      title: 'Experience ${idx + 2}',
+                      jobTitleController: exp.jobTitle,
+                      companyController: exp.company,
+                      startController: exp.startDate,
+                      endController: exp.endDate,
+                      respController: exp.responsibilities,
+                      onPickStart: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime(1990),
+                          lastDate: DateTime(2100),
+                        );
+                        if (d != null) {
+                          exp.startDate.text = '${d.day}/${d.month}/${d.year}';
+                        }
+                      },
+                      onPickEnd: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime(1990),
+                          lastDate: DateTime(2100),
+                        );
+                        if (d != null) {
+                          exp.endDate.text = '${d.day}/${d.month}/${d.year}';
+                        }
+                      },
+                      showDelete: true,
+                      onDelete: () {
+                        setState(() {
+                          _workExperiences.removeAt(idx);
+                        });
+                      },
+                    );
+                  }).toList(),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _handleAddJob,
+                    icon: const Icon(Icons.add, color: Color(0xFF8A2BE2)),
+                    label: const Text('Add Experience'),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          CustomTextField(
-            controller: _jobTitleController,
-            hintText: 'Enter your title here',
-            width: double.infinity,
-            height: 54,
-            borderRadius: 8,
-            borderWidth: 1,
-            fillColor: Colors.white,
-            borderColor: const Color(0xFFE1E1E1),
-          ),
-          const SizedBox(height: 16),
-          // Company Name field
-          _buildFieldLabel('Company Name'),
-          const SizedBox(height: 8),
-          CustomTextField(
-            controller: _companyNameController,
-            hintText: 'Enter company name here',
-            width: double.infinity,
-            height: 54,
-            borderRadius: 8,
-            borderWidth: 1,
-            fillColor: Colors.white,
-            borderColor: const Color(0xFFE1E1E1),
-          ),
-          const SizedBox(height: 16),
-          // Date fields in a row
-          Row(
-            children: [
-              // Start Date field
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('Start Date'),
-                    const SizedBox(height: 8),
-                    CustomTextField(
-                      controller: _startDateController,
-                      hintText: 'Select start date',
-                      readOnly: true,
-                      onTap: _selectStartDate,
-                      width: 148,
-                      height: 54,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      fillColor: Colors.white,
-                      borderColor: const Color(0xFFE1E1E1),
-                      suffixIcon: const Icon(
-                        Icons.calendar_today,
-                        color: Color(0xFF8A2BE2),
-                        size: 20,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // End Date field
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('End Date'),
-                    const SizedBox(height: 8),
-                    CustomTextField(
-                      controller: _endDateController,
-                      hintText: 'Select end date',
-                      readOnly: true,
-                      onTap: _selectEndDate,
-                      width: 148,
-                      height: 54,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      fillColor: Colors.white,
-                      borderColor: const Color(0xFFE1E1E1),
-                      suffixIcon: const Icon(
-                        Icons.calendar_today,
-                        color: Color(0xFF8A2BE2),
-                        size: 20,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Responsibilities field
-          _buildFieldLabel('Responsibilities'),
-          const SizedBox(height: 8),
-          CustomTextField(
-            controller: _responsibilitiesController,
-            hintText: 'Enter your responsibilities here',
-            maxLines: 2,
-            width: double.infinity,
-            height: 60,
-            borderRadius: 8,
-            borderWidth: 1,
-            fillColor: Colors.white,
-            borderColor: const Color(0xFFE1E1E1),
+            ),
           ),
         ],
       ),
@@ -1540,103 +1874,166 @@ Achievements:
             ),
           ),
           const SizedBox(height: 20),
-          // Degree Title field with add button
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('Degree Title'),
-                    const SizedBox(height: 8),
-                    CustomTextField(
-                      controller: _degreeTitleController,
-                      hintText: 'Enter your title here',
-                      height: 54,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      fillColor: Colors.white,
-                      borderColor: const Color(0xFFE1E1E1),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Institute Name field
-          _buildFieldLabel('Institute Name'),
-          const SizedBox(height: 8),
-          CustomTextField(
-            controller: _instituteNameController,
-            hintText: 'Enter institute name here',
-            width: double.infinity,
-            height: 54,
-            borderRadius: 8,
-            borderWidth: 1,
-            fillColor: Colors.white,
-            borderColor: const Color(0xFFE1E1E1),
-          ),
-          const SizedBox(height: 16),
-          // Date fields in a row
-          Row(
-            children: [
-              // Start Date field
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('Start Date'),
-                    const SizedBox(height: 8),
-                    CustomTextField(
-                      controller: _educationStartDateController,
-                      hintText: 'Select start date',
-                      readOnly: true,
-                      onTap: _selectEducationStartDate,
-                      width: 148,
-                      height: 54,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      fillColor: Colors.white,
-                      borderColor: const Color(0xFFE1E1E1),
-                      suffixIcon: const Icon(
-                        Icons.calendar_today,
-                        color: Color(0xFF8A2BE2),
-                        size: 20,
+          // Dynamic education list
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  ..._educations.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final edu = entry.value;
+                    return Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFF8A2BE2),
+                          width: 1,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // End Date field
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('End Date'),
-                    const SizedBox(height: 8),
-                    CustomTextField(
-                      controller: _educationEndDateController,
-                      hintText: 'Select end date',
-                      readOnly: true,
-                      onTap: _selectEducationEndDate,
-                      width: 148,
-                      height: 54,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      fillColor: Colors.white,
-                      borderColor: const Color(0xFFE1E1E1),
-                      suffixIcon: const Icon(
-                        Icons.calendar_today,
-                        color: Color(0xFF8A2BE2),
-                        size: 20,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Education ${idx + 1}',
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (_educations.length > 1)
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _educations.removeAt(idx)),
+                                ),
+                            ],
+                          ),
+                          _buildFieldLabel('Degree Title'),
+                          const SizedBox(height: 8),
+                          CustomTextField(
+                            controller: edu.degree,
+                            hintText: 'Enter your title here',
+                            height: 54,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            fillColor: Colors.white,
+                            borderColor: const Color(0xFFE1E1E1),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildFieldLabel('Institute Name'),
+                          const SizedBox(height: 8),
+                          CustomTextField(
+                            controller: edu.institute,
+                            hintText: 'Enter institute name here',
+                            height: 54,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            fillColor: Colors.white,
+                            borderColor: const Color(0xFFE1E1E1),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildFieldLabel('Start Date'),
+                                    const SizedBox(height: 8),
+                                    CustomTextField(
+                                      controller: edu.startDate,
+                                      hintText: 'Select start date',
+                                      readOnly: true,
+                                      onTap: () async {
+                                        final d = await showDatePicker(
+                                          context: context,
+                                          initialDate: DateTime.now(),
+                                          firstDate: DateTime(1990),
+                                          lastDate: DateTime(2100),
+                                        );
+                                        if (d != null) {
+                                          edu.startDate.text =
+                                              '${d.day}/${d.month}/${d.year}';
+                                        }
+                                      },
+                                      height: 54,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      fillColor: Colors.white,
+                                      borderColor: const Color(0xFFE1E1E1),
+                                      suffixIcon: const Icon(
+                                        Icons.calendar_today,
+                                        color: Color(0xFF8A2BE2),
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildFieldLabel('End Date'),
+                                    const SizedBox(height: 8),
+                                    CustomTextField(
+                                      controller: edu.endDate,
+                                      hintText: 'Select end date',
+                                      readOnly: true,
+                                      onTap: () async {
+                                        final d = await showDatePicker(
+                                          context: context,
+                                          initialDate: DateTime.now(),
+                                          firstDate: DateTime(1990),
+                                          lastDate: DateTime(2100),
+                                        );
+                                        if (d != null) {
+                                          edu.endDate.text =
+                                              '${d.day}/${d.month}/${d.year}';
+                                        }
+                                      },
+                                      height: 54,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      fillColor: Colors.white,
+                                      borderColor: const Color(0xFFE1E1E1),
+                                      suffixIcon: const Icon(
+                                        Icons.calendar_today,
+                                        color: Color(0xFF8A2BE2),
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () =>
+                        setState(() => _educations.add(EducationEntry())),
+                    icon: const Icon(Icons.add, color: Color(0xFF8A2BE2)),
+                    label: const Text('Add Education'),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -2006,6 +2403,42 @@ Achievements:
                 '• ' + _certificationNames.join('\n• '),
               ),
             ],
+            const SizedBox(height: 16),
+
+            // Actions: Regenerate and Download PDF
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _regenerateResume,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8A2BE2),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+                child: Text(_loading ? 'Generating...' : 'Regenerate'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _downloadPdf,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8A2BE2),
+                  foregroundColor: const Color(0xFFF3EAFF),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text('Download PDF'),
+              ),
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -2039,3 +2472,288 @@ Achievements:
     ],
   );
 }
+
+/// Minimal parser to extract sections from AI resume text
+class _AiParsedResume {
+  final String summary;
+  final List<String> skills;
+  final List<String> certifications;
+  final String experience;
+  final String education;
+  const _AiParsedResume({
+    required this.summary,
+    required this.skills,
+    required this.certifications,
+    required this.experience,
+    required this.education,
+  });
+}
+
+_AiParsedResume _extractAiSections(String text) {
+  final String cleaned = text.replaceAll('\r', '').trim();
+  if (cleaned.isEmpty) {
+    return const _AiParsedResume(
+      summary: '',
+      skills: [],
+      certifications: [],
+      experience: '',
+      education: '',
+    );
+  }
+
+  String takeBetween(String start, List<String> ends) {
+    final lower = cleaned.toLowerCase();
+    final sIdx = lower.indexOf(start.toLowerCase());
+    if (sIdx == -1) return '';
+    int eIdx = cleaned.length;
+    for (final e in ends) {
+      final idx = lower.indexOf(e.toLowerCase(), sIdx + start.length);
+      if (idx != -1 && idx < eIdx) eIdx = idx;
+    }
+    return cleaned.substring(sIdx + start.length, eIdx).trim();
+  }
+
+  String summary = '';
+  // Common headings
+  final headings = ['summary', 'professional summary', 'profile', 'objective'];
+  for (final h in headings) {
+    summary = takeBetween(h, [
+      'skills',
+      'experience',
+      'work experience',
+      'education',
+      'academic',
+    ]);
+    if (summary.isNotEmpty) break;
+  }
+  if (summary.isEmpty) {
+    // fallback: first paragraph
+    summary = cleaned.split('\n\n').first.trim();
+  }
+
+  // Skills
+  String skillsBlock = takeBetween('skills', [
+    'experience',
+    'work experience',
+    'education',
+    'projects',
+  ]);
+  final List<String> skills = skillsBlock
+      .split(RegExp(r'[\n,•\-]'))
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty && s.length < 40)
+      .toSet()
+      .toList();
+
+  // Experience
+  String experience = takeBetween('experience', [
+    'education',
+    'academic',
+    'projects',
+    'certifications',
+  ]);
+  if (experience.isEmpty) {
+    experience = takeBetween('work experience', [
+      'education',
+      'academic',
+      'projects',
+      'certifications',
+    ]);
+  }
+
+  // Education
+  String education = takeBetween('education', [
+    'experience',
+    'work experience',
+    'skills',
+    'projects',
+  ]);
+
+  return _AiParsedResume(
+    summary: summary,
+    skills: skills,
+    certifications: const [],
+    experience: experience,
+    education: education,
+  );
+}
+
+_AiParsedResume _extractFromJson(Map<String, dynamic> json) {
+  String summary = (json['summary'] ?? '').toString().trim();
+  if (summary.length > 400) summary = summary.substring(0, 400) + '...';
+
+  final List<String> skills = ((json['skills'] as List?) ?? [])
+      .map((e) => e.toString().trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  final List<String> certs = ((json['certifications'] as List?) ?? [])
+      .map((e) => e.toString().trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  final List eduList = (json['education'] as List?) ?? [];
+  final String education = eduList
+      .map((e) {
+        final m = e as Map<String, dynamic>;
+        final degree = (m['degree'] ?? '').toString();
+        final institute = (m['institute'] ?? '').toString();
+        final year = (m['year'] ?? '').toString();
+        return [
+          degree,
+          institute,
+          year.isNotEmpty ? '($year)' : '',
+        ].where((s) => s.trim().isNotEmpty).join(' – ');
+      })
+      .where((s) => s.trim().isNotEmpty)
+      .join('\n');
+
+  final List expList = (json['experience'] as List?) ?? [];
+  final String experience = expList
+      .map((e) {
+        final m = e as Map<String, dynamic>;
+        final title = (m['title'] ?? '').toString();
+        final company = (m['company'] ?? '').toString();
+        final date = (m['date'] ?? '').toString();
+        final resp = ((m['responsibilities'] as List?) ?? [])
+            .map((r) => '• ' + r.toString())
+            .join('\n');
+        final header = [
+          title,
+          company,
+          date.isNotEmpty ? '($date)' : '',
+        ].where((s) => s.trim().isNotEmpty).join(' – ');
+        return [header, resp].where((s) => s.trim().isNotEmpty).join('\n');
+      })
+      .where((s) => s.trim().isNotEmpty)
+      .join('\n\n');
+
+  return _AiParsedResume(
+    summary: summary,
+    skills: skills,
+    certifications: certs,
+    experience: experience,
+    education: education,
+  );
+}
+
+String _cleanCert(String urlOrName) {
+  if (urlOrName.contains('http')) {
+    try {
+      final last = urlOrName.split('/').last;
+      return last.split('_').last.replaceAll('%20', ' ');
+    } catch (_) {
+      return urlOrName;
+    }
+  }
+  return urlOrName;
+}
+
+String? _extractEmail(String links) {
+  final match = RegExp(r"[\w\.-]+@[\w\.-]+\.[A-Za-z]{2,}").firstMatch(links);
+  return match?.group(0);
+}
+
+String? _extractLinkedIn(String links) {
+  final match = RegExp(
+    r"https?:\/\/(www\.)?linkedin\.com\/[\w\-/_%]+",
+    caseSensitive: false,
+  ).firstMatch(links);
+  return match?.group(0);
+}
+
+String? _extractWebsite(String links) {
+  final match = RegExp(
+    r"https?:\/\/([\w-]+\.)+[\w-]+(\/[\w\-._~:?#\[\]@!$&'()*+,;=%]*)?",
+    caseSensitive: false,
+  ).firstMatch(links);
+  final url = match?.group(0);
+  if (url == null) return null;
+  // Prefer non-LinkedIn websites here
+  if (url.toLowerCase().contains('linkedin.com')) return null;
+  return url;
+}
+
+String _cleanAscii(String input) {
+  return input
+      .replaceAll(RegExp(r'[^\x00-\x7F]'), '')
+      .replaceAll('•', '-')
+      .trim();
+}
+
+// Strict sanitizer: printable ASCII only and remove GPT bullets/dashes
+String sanitizeText(String input) {
+  return input
+      .replaceAll(RegExp(r'[^\x20-\x7E]'), '')
+      .replaceAll(RegExp(r'[•▪‣◦●–-]'), '')
+      .trim();
+}
+
+String _certName(String url) {
+  final last = url.split('/').last;
+  return last
+      .replaceAll(RegExp(r'[_.-]'), ' ')
+      .replaceAll('.pdf', '')
+      .replaceAll('.docx', '')
+      .replaceAll('.doc', '')
+      .trim();
+}
+
+// Remove markdown artifacts and decorative separators
+String _sanitizeInline(String s) {
+  return s
+      .replaceAll('**', '')
+      .replaceAll(RegExp(r'^-\s*', multiLine: true), '')
+      .replaceAll(RegExp(r'\n\s*[-–]{2,}\s*\n'), '\n')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+// Convert a blob of AI text into clean bullet lines
+List<String> _linesFrom(String s) {
+  final cleaned = s.replaceAll('**', '').replaceAll('\r', '');
+  final raw = cleaned
+      .split('\n')
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  final List<String> out = [];
+  for (final line in raw) {
+    String l = line;
+    l = l.replaceFirst(RegExp(r'^[•\-–\*]\s*'), '');
+    if (l == '---' || l == '--') continue;
+    out.add(l);
+  }
+  // de-duplicate short lines
+  return out.toSet().toList();
+}
+
+// Merge, sanitize and cap skills for chips
+List<String> _mergeSkills(List<String> manual, List<String> fromAi) {
+  final List<String> all =
+      [
+            ...manual,
+            ...fromAi
+                .expand(
+                  (e) => e.split(RegExp(r'[,/|]')),
+                ) // split by common separators
+                .toList(),
+          ]
+          .map((s) => s.replaceAll('**', '').trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+  final seen = <String>{};
+  final List<String> unique = [];
+  for (final s in all) {
+    final key = s.toLowerCase();
+    if (seen.add(key)) unique.add(s);
+    if (unique.length >= 14) break; // cap chips to keep layout tidy
+  }
+  return unique;
+}
+
+String _cleanText(dynamic v) => v == null
+    ? ''
+    : v.toString().replaceAll('**', '').replaceAll('\r', '').trim();
